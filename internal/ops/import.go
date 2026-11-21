@@ -75,12 +75,17 @@ func isGitURL(src string) bool {
 	return strings.HasPrefix(src, "https://") || strings.HasPrefix(src, "git@") || strings.HasSuffix(src, ".git")
 }
 
-// fetchSource returns the folder to read the skill from. For a git URL that is
-// a shallow clone in a new temp dir, and cleanup removes that dir. The clone
-// never prompts for credentials.
+// fetchSource returns the folder to read the skill from. A local src is resolved
+// through its symlinks. A git URL is a shallow clone in a new temp dir, and
+// cleanup removes that dir. The clone never prompts for credentials and never
+// runs an ext:: helper.
 func fetchSource(src string) (root string, cleanup func(), err error) {
 	if !isGitURL(src) {
-		return src, func() {}, nil
+		resolved, err := filepath.EvalSymlinks(src)
+		if err != nil {
+			return "", nil, err
+		}
+		return resolved, func() {}, nil
 	}
 	tmp, err := os.MkdirTemp("", "sapato-import-")
 	if err != nil {
@@ -88,7 +93,9 @@ func fetchSource(src string) (root string, cleanup func(), err error) {
 	}
 	cleanup = func() { _ = os.RemoveAll(tmp) }
 	root = filepath.Join(tmp, "repo")
-	cmd := exec.Command("git", "clone", "--depth", "1", "--", src, root)
+	// -c wins over the user's git config, so ext:: stays refused even where
+	// the config allows it.
+	cmd := exec.Command("git", "-c", "protocol.ext.allow=never", "clone", "--depth", "1", "--", src, root)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		cleanup()

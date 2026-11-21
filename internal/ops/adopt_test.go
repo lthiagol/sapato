@@ -1,6 +1,8 @@
 package ops
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -152,5 +154,44 @@ func TestAdoptKeepsModeBits(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o755 {
 		t.Errorf("run.sh mode = %v, want 0755", info.Mode().Perm())
+	}
+}
+
+func TestAdoptLockFailureKeepsVault(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	tests := []struct {
+		name  string
+		skill string
+		force bool
+	}{
+		{name: "new vault skill is removed again", skill: "hand-made-skill"},
+		{name: "forced replacement keeps the old vault copy", skill: "mocked-skill-00004", force: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := fixtureVault(t)
+			agent := fixtureAgent(t, "claude")
+			if tt.skill == "mocked-skill-00004" {
+				writeSkillDir(t, filepath.Join(agent.Path, tt.skill), tt.skill)
+			}
+			vaultBefore := snapshot(t, v.Path)
+
+			// The lock is written through a temp file in the agent dir, so a read-only
+			// dir makes the lock write fail after the vault copy is placed.
+			if err := os.Chmod(agent.Path, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(agent.Path, 0o755) })
+
+			_, err := Adopt(v, agent, tt.skill, Options{Force: tt.force})
+			if !errors.Is(err, fs.ErrPermission) {
+				t.Fatalf("Adopt() error = %v, want a permission error from the lock write", err)
+			}
+			if after := snapshot(t, v.Path); !reflect.DeepEqual(after, vaultBefore) {
+				t.Error("failed adopt changed the vault")
+			}
+		})
 	}
 }

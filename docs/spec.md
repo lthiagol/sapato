@@ -139,6 +139,12 @@ Glob vs literal: a skill named literally that hits a hard refusal (invalid on in
 
 Notes: `remove` counts an agent as "installed" if status is synced/outdated/modified in any configured agent (enabled or not); `missing` does not count. `adopt --force` overwrites a same-named vault skill. `import` takes the skill name from frontmatter (`--name` must match it).
 
+`sync` rules: acts only on agents with an `[assignments]` key (others never pruned); a disabled agent's assignments are reported as skips; literal/glob and refusal rules match install/update/uninstall; plans everything (dry-run) before applying. `--force`/`--prune` are CLI flags.
+
+`doctor` severities: `error` = invalid vault skill, corrupt lock (exit 1); `warn` = modified, missing, orphaned, overlap. Findings go to stdout.
+
+Overlaps (§2) are about fixed directories the agent itself reads (e.g. cursor always reads `~/.claude/skills`, wherever sapato's `claude` target is configured). Resolve those extra-read dirs from the home dir, and compare them to every configured agent path with symlinks resolved.
+
 Exit codes: 0 ok, 1 error, 2 usage error. Errors go to stderr.
 
 ## 8. Install mechanics

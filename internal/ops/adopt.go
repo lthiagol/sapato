@@ -2,7 +2,6 @@ package ops
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -55,11 +54,8 @@ func Adopt(v *vault.Vault, agent config.Agent, skill string, opts Options) (Acti
 	if opts.DryRun {
 		return action, nil
 	}
-	if err := placeSkill(dir, dest); err != nil {
-		return Action{}, fmt.Errorf("adopt %s in %s: %w", skill, agent.ID, err)
-	}
-	if err := recordLock(agent.Path, s, time.Now().UTC()); err != nil {
-		_ = os.RemoveAll(dest)
+	commit := func() error { return recordLock(agent.Path, s, time.Now().UTC()) }
+	if err := placeSkillThen(dir, dest, commit); err != nil {
 		return Action{}, fmt.Errorf("adopt %s in %s: %w", skill, agent.ID, err)
 	}
 	return action, nil

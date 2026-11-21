@@ -89,6 +89,17 @@ func TestImport(t *testing.T) {
 			wantErr: "no such file",
 		},
 		{
+			name: "symlink to a skill folder is imported",
+			src: func(t *testing.T) string {
+				link := filepath.Join(t.TempDir(), "link")
+				if err := os.Symlink(fresh(t), link); err != nil {
+					t.Fatal(err)
+				}
+				return link
+			},
+			wantName: "fresh-skill",
+		},
+		{
 			name: "subdir holding the skill is used",
 			src: func(t *testing.T) string {
 				root := filepath.Join(t.TempDir(), "repo")
@@ -145,7 +156,11 @@ func TestImport(t *testing.T) {
 			if !got.Valid {
 				t.Errorf("imported skill is invalid: %v", got.Problems)
 			}
-			want, err := hashdir.Hash(filepath.Join(src, tt.opts.Subdir))
+			real, err := filepath.EvalSymlinks(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := hashdir.Hash(filepath.Join(real, tt.opts.Subdir))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -286,6 +301,23 @@ func TestImportGit(t *testing.T) {
 				t.Errorf("vault hash = %s, want fixture hash %s", got.Hash, want)
 			}
 		})
+	}
+}
+
+func TestImportGitRefusesExtHelper(t *testing.T) {
+	requireGit(t)
+	// Allowing ext:: in the user's config must not let an import run a helper.
+	// The helper here is true, so a clone that got past the guard fails with a
+	// different message.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "protocol.ext.allow")
+	t.Setenv("GIT_CONFIG_VALUE_0", "always")
+	t.Setenv("TMPDIR", t.TempDir())
+	v := fixtureVault(t)
+
+	_, err := Import(v, "ext::true x.git", ImportOptions{})
+	if err == nil || !strings.Contains(err.Error(), "transport 'ext' not allowed") {
+		t.Fatalf("Import() error = %v, want ext transport refused", err)
 	}
 }
 

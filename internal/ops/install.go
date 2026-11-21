@@ -171,6 +171,44 @@ func placeSkill(src, dest string) error {
 	return nil
 }
 
+// placeSkillThen copies src over dest, then runs commit. If either step fails,
+// the copy is removed and the old dest, if there was one, is put back. A failed
+// call therefore leaves the old copy in place.
+func placeSkillThen(src, dest string, commit func() error) error {
+	present, err := pathExists(dest)
+	if err != nil {
+		return err
+	}
+	backup := filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+".sapato-old")
+	if present {
+		if err := os.RemoveAll(backup); err != nil {
+			return fmt.Errorf("clear old copy backup: %w", err)
+		}
+		if err := os.Rename(dest, backup); err != nil {
+			return fmt.Errorf("set aside old copy: %w", err)
+		}
+	}
+	undo := func(err error) error {
+		_ = os.RemoveAll(dest)
+		if present {
+			_ = os.Rename(backup, dest)
+		}
+		return err
+	}
+	if err := placeSkill(src, dest); err != nil {
+		return undo(err)
+	}
+	if err := commit(); err != nil {
+		return undo(err)
+	}
+	if present {
+		if err := os.RemoveAll(backup); err != nil {
+			return fmt.Errorf("remove old copy: %w", err)
+		}
+	}
+	return nil
+}
+
 // stageSkill copies the skill folder src into a new folder at tmp. On failure
 // tmp is removed.
 func stageSkill(src, tmp string) (err error) {
@@ -249,11 +287,16 @@ func checkArgs(agents []config.Agent, skills []string) error {
 func literalNames(args []string) map[string]bool {
 	literal := make(map[string]bool, len(args))
 	for _, a := range args {
-		if !strings.ContainsAny(a, `*?[\`) {
+		if isLiteral(a) {
 			literal[a] = true
 		}
 	}
 	return literal
+}
+
+// isLiteral reports whether arg names a skill exactly, with no glob syntax.
+func isLiteral(arg string) bool {
+	return !strings.ContainsAny(arg, `*?[\`)
 }
 
 // checkMatched fails when a glob is malformed or matches none of names.
