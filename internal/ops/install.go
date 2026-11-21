@@ -24,6 +24,7 @@ const (
 	OpUninstall = "uninstall"
 	OpUpdate    = "update"
 	OpImport    = "import"
+	OpCreate    = "create"
 	OpAdopt     = "adopt"
 	OpRemove    = "remove"
 	OpSkip      = "skip"
@@ -174,41 +175,67 @@ func placeSkill(src, dest string) error {
 // renamePath is os.Rename, held in a variable so tests can fail the final rename.
 var renamePath = os.Rename
 
+// skillCopy is a skill folder src to copy over dest.
+type skillCopy struct {
+	src  string
+	dest string
+}
+
 // placeSkillThen copies src over dest, then runs commit when commit is not nil.
 // If either step fails, the copy is removed and the old dest, if there was one,
 // is put back. A failed call therefore leaves the old copy in place.
 func placeSkillThen(src, dest string, commit func() error) error {
-	present, err := pathExists(dest)
-	if err != nil {
-		return err
-	}
-	backup := filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+".sapato-old")
-	if present {
-		if err := os.RemoveAll(backup); err != nil {
-			return fmt.Errorf("clear old copy backup: %w", err)
-		}
-		if err := os.Rename(dest, backup); err != nil {
-			return fmt.Errorf("set aside old copy: %w", err)
-		}
-	}
+	return placeSkills([]skillCopy{{src: src, dest: dest}}, commit)
+}
+
+// placeSkills copies each skill over its dest, then runs commit when commit is not
+// nil. The call is all or nothing: if any step fails, every dest gets back the copy
+// it held before, and the new copies are removed.
+func placeSkills(copies []skillCopy, commit func() error) error {
+	type movedAside struct{ dest, backup string }
+	var old []movedAside
+	var fresh []string
 	undo := func(err error) error {
-		_ = os.RemoveAll(dest)
-		if present {
-			_ = os.Rename(backup, dest)
+		for _, dest := range fresh {
+			_ = os.RemoveAll(dest)
+		}
+		for _, m := range slices.Backward(old) {
+			_ = os.Rename(m.backup, m.dest)
 		}
 		return err
 	}
-	if err := placeSkill(src, dest); err != nil {
-		return undo(err)
+
+	for _, c := range copies {
+		present, err := pathExists(c.dest)
+		if err != nil {
+			return undo(err)
+		}
+		if !present {
+			continue
+		}
+		backup := filepath.Join(filepath.Dir(c.dest), "."+filepath.Base(c.dest)+".sapato-old")
+		if err := os.RemoveAll(backup); err != nil {
+			return undo(fmt.Errorf("clear old copy backup: %w", err))
+		}
+		if err := os.Rename(c.dest, backup); err != nil {
+			return undo(fmt.Errorf("set aside old copy: %w", err))
+		}
+		old = append(old, movedAside{dest: c.dest, backup: backup})
+	}
+	for _, c := range copies {
+		fresh = append(fresh, c.dest)
+		if err := placeSkill(c.src, c.dest); err != nil {
+			return undo(err)
+		}
 	}
 	if commit != nil {
 		if err := commit(); err != nil {
 			return undo(err)
 		}
 	}
-	if present {
-		// The new copy is in place. A leftover backup is dot-prefixed, so scans ignore it.
-		_ = os.RemoveAll(backup)
+	// The new copies are in place. Leftover backups are dot-prefixed, so scans ignore them.
+	for _, m := range old {
+		_ = os.RemoveAll(m.backup)
 	}
 	return nil
 }

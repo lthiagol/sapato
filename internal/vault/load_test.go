@@ -107,3 +107,53 @@ func TestSkillDir(t *testing.T) {
 		})
 	}
 }
+
+func TestParseContent(t *testing.T) {
+	long := strings.Repeat("d", maxDescription+1)
+	tests := []struct {
+		name      string
+		content   string
+		wantName  string
+		wantValid bool
+		wantProb  string
+	}{
+		{name: "valid", content: goodSkill, wantName: "demo", wantValid: true},
+		{name: "name comes from frontmatter", content: "---\nname: other-name\ndescription: A demo.\n---\n", wantName: "other-name", wantValid: true},
+		{name: "missing name", content: "---\ndescription: A demo.\n---\n", wantProb: "frontmatter name must be a non-empty string"},
+		{name: "invalid name", content: "---\nname: Demo\ndescription: A demo.\n---\n", wantName: "Demo", wantProb: "must match"},
+		{name: "name with a path part", content: "---\nname: ../demo\ndescription: A demo.\n---\n", wantName: "../demo", wantProb: "must match"},
+		{name: "missing description", content: "---\nname: demo\n---\n", wantName: "demo", wantProb: "frontmatter description must be a non-empty string"},
+		{name: "long description", content: "---\nname: demo\ndescription: " + long + "\n---\n", wantName: "demo", wantProb: "max 1024"},
+		{name: "no frontmatter", content: "# Demo\n", wantProb: "missing opening --- line"},
+		{name: "empty content", content: "", wantProb: "missing opening --- line"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := ParseContent([]byte(tt.content))
+			if s.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", s.Name, tt.wantName)
+			}
+			if s.Valid != tt.wantValid {
+				t.Errorf("Valid = %v, want %v (problems %v)", s.Valid, tt.wantValid, s.Problems)
+			}
+			if s.Dir != "" || s.Hash != "" {
+				t.Errorf("Dir = %q, Hash = %q, want both empty", s.Dir, s.Hash)
+			}
+			if tt.wantProb == "" {
+				return
+			}
+			if !containsProblem(s.Problems, tt.wantProb) {
+				t.Errorf("Problems = %v, want one containing %q", s.Problems, tt.wantProb)
+			}
+		})
+	}
+}
+
+func containsProblem(problems []string, want string) bool {
+	for _, p := range problems {
+		if strings.Contains(p, want) {
+			return true
+		}
+	}
+	return false
+}

@@ -68,7 +68,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newConfigCmd(&opts), newInitCmd(&opts), newListCmd(&opts), newStatusCmd(&opts),
 		newInstallCmd(&opts), newUninstallCmd(&opts), newUpdateCmd(&opts), newDiffCmd(&opts),
 		newImportCmd(&opts), newAdoptCmd(&opts), newRemoveCmd(&opts), newSyncCmd(&opts), newDoctorCmd(&opts),
-		newTUICmd(&opts))
+		newNewCmd(&opts), newExportCmd(&opts), newTUICmd(&opts))
 	return root
 }
 

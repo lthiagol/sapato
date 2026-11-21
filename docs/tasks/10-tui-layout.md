@@ -23,3 +23,8 @@ Spec: §9.1, §9.2, §9.3 (themes/icons from task 08).
 - Model tests: navigation, enter/esc between screens, marks, every skill-screen action incl. force flow on a fixture copy, filter.
 - View tests (golden-ish, `NO_COLOR` + unicode icons): header full vs compact by size; grid centered (left padding equal ±1 to right); no line exceeds terminal width at 80×24, 120×40, 200×60; bar fits in one row at 80 cols.
 - `gofmt -l .` empty, `go vet ./...`, `go test -count=1 ./...` pass.
+
+## Carry-over from 09
+- `internal/ops/archive.go:129`: skip pax global headers (`tar.TypeXGlobalHeader`) instead of refusing (still counted toward the entry cap), so `git archive` tarballs import. Test it.
+- `internal/ops/archive.go:36`: `isArchive` case-insensitive (`.TGZ`, `.TAR.GZ`).
+- `internal/ops/export_test.go:114`: `os.Chtimes` a file between the two exports so the determinism test proves mtimes are ignored.

@@ -15,17 +15,34 @@ import (
 // ImportOptions are the flags of Import.
 type ImportOptions struct {
 	Options
-	// Name is the skill name. When set it must match the frontmatter name.
+	// Name is the skill name. For a folder or git source it must match the
+	// frontmatter name. For a tarball it is allowed only with a single-skill archive.
 	Name string
-	// Subdir is the folder of the source that holds the skill.
+	// Subdir is the folder of the source that holds the skill. It does not apply to a tarball.
 	Subdir string
 }
 
-// Import copies the skill at src into the vault (spec §7). src is a local folder,
-// or a git URL that is shallow-cloned to a temp dir first. The skill takes the
-// name in its frontmatter. It must be valid, and a name already in the vault is
-// refused unless opts.Force is set. When a check fails nothing is changed.
-func Import(v *vault.Vault, src string, opts ImportOptions) (Action, error) {
+// Import copies skills from src into the vault (spec §7, §11). src is a gzip
+// tarball, a local folder, or a git URL that is shallow-cloned to a temp dir first.
+// A skill takes the name in its frontmatter. It must be valid, and a name already in
+// the vault is refused unless opts.Force is set. When a check fails nothing is changed.
+func Import(v *vault.Vault, src string, opts ImportOptions) ([]Action, error) {
+	if isArchive(src) {
+		actions, err := importArchive(v, src, opts)
+		if err != nil {
+			return nil, fmt.Errorf("import %s: %w", src, err)
+		}
+		return actions, nil
+	}
+	action, err := importFolder(v, src, opts)
+	if err != nil {
+		return nil, err
+	}
+	return []Action{action}, nil
+}
+
+// importFolder copies the skill folder at src, or in a git clone of src, into the vault.
+func importFolder(v *vault.Vault, src string, opts ImportOptions) (Action, error) {
 	root, cleanup, err := fetchSource(src)
 	if err != nil {
 		return Action{}, fmt.Errorf("import %s: %w", src, err)
@@ -57,7 +74,7 @@ func Import(v *vault.Vault, src string, opts ImportOptions) (Action, error) {
 		return Action{}, fmt.Errorf("import %s: %w", src, err)
 	}
 	if present && !opts.Force {
-		return Action{}, fmt.Errorf("import %s: %s is already in the vault (use --force)", src, name)
+		return Action{}, fmt.Errorf("import %s: %w", src, forceRefusal(name+" is already in the vault (use --force)"))
 	}
 
 	action := Action{Op: OpImport, Skill: name, Path: dest}

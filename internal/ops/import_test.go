@@ -129,7 +129,7 @@ func TestImport(t *testing.T) {
 			before := snapshot(t, v.Path)
 			src := tt.src(t)
 
-			action, err := Import(v, src, tt.opts)
+			actions, err := Import(v, src, tt.opts)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("Import() error = %v, want one containing %q", err, tt.wantErr)
@@ -146,9 +146,9 @@ func TestImport(t *testing.T) {
 				return
 			}
 
-			wantAction := Action{Op: OpImport, Skill: tt.wantName, Path: v.SkillDir(tt.wantName)}
-			if action != wantAction {
-				t.Errorf("action = %+v, want %+v", action, wantAction)
+			wantActions := []Action{{Op: OpImport, Skill: tt.wantName, Path: v.SkillDir(tt.wantName)}}
+			if !reflect.DeepEqual(actions, wantActions) {
+				t.Errorf("actions = %+v, want %+v", actions, wantActions)
 			}
 			if tt.opts.DryRun {
 				return

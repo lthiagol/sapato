@@ -63,6 +63,26 @@ func Load(dir, name string) (Skill, error) {
 	return s, nil
 }
 
+// ParseContent validates data as the SKILL.md of a skill that is not in a vault
+// yet. The skill takes the name in its frontmatter, so no folder name is checked.
+// Dir and Hash are left empty.
+func ParseContent(data []byte) Skill {
+	s := Skill{Name: contentName(data)}
+	s.validate(data)
+	s.Valid = len(s.Problems) == 0
+	return s
+}
+
+// contentName returns the name in the frontmatter of data, or "" if there is none.
+func contentName(data []byte) string {
+	fm, err := parseFrontmatter(data)
+	if err != nil {
+		return ""
+	}
+	name, _ := fm["name"].(string)
+	return name
+}
+
 // FrontmatterName returns the name in the frontmatter of the SKILL.md in dir.
 // It returns "" when the name is missing or not a string.
 func FrontmatterName(dir string) (string, error) {
