@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
@@ -29,7 +30,7 @@ func (m Model) View() string {
 func (m Model) body() []string {
 	switch m.mode {
 	case modeConfirm:
-		return m.dialogBlock(m.confirmBody)
+		return m.confirmModal()
 	case modeDiff:
 		return m.diffBody()
 	case modeHelp:
@@ -52,20 +53,25 @@ func (m Model) body() []string {
 }
 
 // frame stacks the header, a rule, the body fitted to the rows between the rule
-// and the bar, and the two bar rows. The notifications are drawn over the body.
-// Before the first size message the body is not fitted.
+// and the bar, and the bar. The notifications are drawn over the body. Before the
+// first size message the body is not fitted.
 func (m Model) frame(body []string) string {
 	lines := append(m.headerLines(), m.rule())
 	if h := m.bodyHeight(); h > 0 {
-		body = body[:min(len(body), h)]
-		for len(body) < h {
-			body = append(body, "")
-		}
-		body = m.overlay(body)
+		body = m.overlay(fitRows(body, h))
 	}
 	lines = append(lines, body...)
 	lines = append(lines, m.bar()...)
 	return m.fit(lines)
+}
+
+// fitRows cuts lines to h rows, and pads a short list with blank rows.
+func fitRows(lines []string, h int) []string {
+	lines = lines[:min(len(lines), h)]
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return lines
 }
 
 // compact reports whether the header is the one-line form: the terminal is
@@ -83,12 +89,13 @@ func (m Model) headerHeight() int {
 }
 
 // bodyHeight is the number of lines between the rule under the header and the
-// bar, which takes two rows. It is 0 before the terminal reports its size.
+// bar, which takes three: its rule and two rows. It is 0 before the terminal reports
+// its size.
 func (m Model) bodyHeight() int {
 	if m.height == 0 {
 		return 0
 	}
-	return max(1, m.height-m.headerHeight()-3)
+	return max(1, m.height-m.headerHeight()-4)
 }
 
 // headerLines returns the header, centered: the art and tagline, or the one-line
@@ -112,36 +119,6 @@ func (m Model) headerLines() []string {
 // rule is the full-width line under the header and above the bar.
 func (m Model) rule() string {
 	return m.styles.rule.Render(strings.Repeat(m.icons.Rule, m.width))
-}
-
-// modeName is the badge text of the current screen or overlay.
-func (m Model) modeName() string {
-	switch m.mode {
-	case modeFilter:
-		return "FILTER"
-	case modeConfirm:
-		return "CONFIRM"
-	case modeDiff:
-		return "DIFF"
-	case modeHelp:
-		return "HELP"
-	case modeAdopt:
-		return "ADOPT"
-	case modeNew:
-		return "NEW"
-	case modeImport:
-		return "IMPORT"
-	case modeExport:
-		return "EXPORT"
-	case modeTheme:
-		return "THEME"
-	case modeLog:
-		return "LOG"
-	}
-	if m.screen == screenSkill {
-		return "SKILL"
-	}
-	return "MAIN"
 }
 
 // mainBody is the grid: a column-header row, a rule, then the skill rows of the
@@ -253,40 +230,39 @@ func (m Model) spaces(n int, selected bool) string {
 func (m Model) confirmBody(w int) []string {
 	p := m.pending
 	if p.act.op == opDiscard {
-		return []string{
-			m.styles.bold.Render(truncate("Discard the new skill?", w)),
-			"",
-			m.styles.dim.Render(truncate(effect(p.act), w)),
-		}
+		return append([]string{m.styles.bold.Render(truncate("Discard the new skill?", w)), ""}, m.effectLines(p.act, w)...)
 	}
 	if p.act.op == opConfigInit {
-		return []string{
-			m.styles.bold.Render(truncate("No config found. Create "+p.act.path+"?", w)),
-			"",
-			m.styles.dim.Render(truncate(effect(p.act), w)),
-		}
+		return append([]string{m.styles.bold.Render(truncate("No config found. Create "+p.act.path+"?", w)), ""}, m.effectLines(p.act, w)...)
 	}
 	if p.act.op == opVaultInit {
-		return []string{
-			m.styles.bold.Render(truncate("No vault at "+p.act.path+". Create it?", w)),
-			"",
-			m.styles.dim.Render(truncate(effect(p.act), w)),
-		}
+		return append([]string{m.styles.bold.Render(truncate("No vault at "+p.act.path+". Create it?", w)), ""}, m.effectLines(p.act, w)...)
 	}
+	lines := []string{m.styles.bold.Render(truncate(capitalize(subject(p.act))+"?", w)), ""}
 	if p.act.force {
-		return []string{
-			m.styles.fail.Render(truncate("Force "+subject(p.act)+"?", w)),
-			"",
-			"  " + truncate(p.reason, w-2),
-			"",
-			m.styles.fail.Render(truncate(effect(p.act), w)),
+		for _, l := range wrapText(strings.Join(p.reasons, "\n"), w-2) {
+			lines = append(lines, "  "+l)
+		}
+	} else {
+		for _, a := range p.plan {
+			lines = append(lines, "  "+truncate(describe(a), w-2))
 		}
 	}
-	lines := []string{m.styles.bold.Render(truncate(subject(p.act)+"?", w)), ""}
-	for _, a := range p.plan {
-		lines = append(lines, "  "+truncate(describe(a), w-2))
+	return append(append(lines, ""), m.effectLines(p.act, w)...)
+}
+
+// effectLines is what a confirm says it loses or changes, wrapped to w columns and
+// at most three lines. A force prompt states it in Red, the others in Overlay.
+func (m Model) effectLines(a action, w int) []string {
+	style := m.styles.dim
+	if a.force {
+		style = m.styles.fail
 	}
-	return append(lines, "", m.styles.dim.Render(truncate(effect(p.act), w)))
+	var lines []string
+	for _, l := range wrapText(effect(a), w) {
+		lines = append(lines, style.Render(l))
+	}
+	return lines
 }
 
 func (m Model) diffBody() []string {
@@ -335,111 +311,125 @@ func (m Model) screenHints() (own, global []key.Binding) {
 	return m.keys.mainHints(), m.keys.mainGlobals()
 }
 
-// barHints lists the bindings the bar shows for the current mode, as the screen's
-// own keys and its global keys. The modes where L opens LOG list it as their global
-// key. Text inputs have none, since L is typed there.
+// bar is the bottom bar of spec §9.1: a full-width rule, then two rows. Row 1 holds
+// the action hints, centered. Row 2 holds the global hints at the left and the counts
+// at the right. The bar has no background.
+func (m Model) bar() []string {
+	own, global := m.barHints()
+	return []string{m.rule(), m.actionRow(own), m.globalRow(global)}
+}
+
+// actionRow is bar row 1: the action hints centered. While filtering it is the filter
+// input followed by the hints.
+func (m Model) actionRow(own []key.Binding) string {
+	text := m.hintText(own)
+	if m.mode == modeFilter {
+		text = m.filter.View() + m.styles.dim.Render(" · ") + text
+	}
+	w := m.barWidth(lipgloss.Width(text))
+	left := max(0, (w-lipgloss.Width(text))/2)
+	return cutPad(strings.Repeat(" ", left)+text, w)
+}
+
+// globalRow is bar row 2: the global hints one column in from the left, and the
+// counts one column in from the right. The hints give way when the row is narrow,
+// and the counts stay whole.
+func (m Model) globalRow(global []key.Binding) string {
+	text, sum := m.hintText(global), m.summary()
+	sumW := lipgloss.Width(sum)
+	w := m.barWidth(lipgloss.Width(text) + sumW + 3)
+	return " " + cutPad(text, max(0, w-sumW-3)) + " " + sum + " "
+}
+
+// barWidth is the width a bar row is fitted to. Before the first size message it is
+// the natural width of the row, so nothing is cut.
+func (m Model) barWidth(natural int) int {
+	if m.width == 0 {
+		return natural
+	}
+	return m.width
+}
+
+// cutPad cuts s to w columns, ending with an ellipsis when it had to cut, and pads it
+// to w. The cut keeps the color codes of s.
+func cutPad(s string, w int) string {
+	return pad(ansi.Truncate(s, w, "…"), w)
+}
+
+// hintText lists the bindings as hints: each key in Accent bold, its description in
+// Subtext, and the hints joined with Overlay dots.
+func (m Model) hintText(bindings []key.Binding) string {
+	parts := make([]string, 0, len(bindings))
+	for _, b := range bindings {
+		h := b.Help()
+		parts = append(parts, m.styles.hintKey.Render(h.Key)+" "+m.styles.subtext.Render(h.Desc))
+	}
+	return strings.Join(parts, m.styles.dim.Render(" · "))
+}
+
+// barHints lists the bindings the bar shows for the current mode, as the action hints
+// of row 1 and the global hints of row 2. The modes where L opens LOG list it among
+// their globals. Text inputs have none, since L is typed there.
 func (m Model) barHints() (own, global []key.Binding) {
-	logOnly := []key.Binding{m.keys.log}
 	switch m.mode {
 	case modeFilter:
 		return m.keys.filterHints(), nil
 	case modeConfirm:
 		return []key.Binding{m.keys.yes, m.keys.no}, nil
 	case modeDiff:
-		return []key.Binding{m.keys.closeView, scrollHint}, logOnly
+		return []key.Binding{scrollHint}, []key.Binding{m.keys.closeView, m.keys.log}
 	case modeHelp:
-		return []key.Binding{m.keys.closeView}, logOnly
+		return nil, []key.Binding{m.keys.closeView, m.keys.log}
 	case modeAdopt:
-		return []key.Binding{moveHint, adoptHint, backHint}, logOnly
+		return []key.Binding{adoptHint}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeNew:
-		return []key.Binding{m.keys.save, cancelHint}, nil
+		return []key.Binding{m.keys.save}, []key.Binding{cancelHint}
 	case modeImport, modeExport:
-		return []key.Binding{runHint, cancelHint}, nil
+		return []key.Binding{runHint}, []key.Binding{cancelHint}
 	case modeTheme:
-		return []key.Binding{moveHint, keepHint, restoreHint}, logOnly
+		return []key.Binding{keepHint, restoreHint}, []key.Binding{moveHint, m.keys.log}
 	case modeLog:
-		return []key.Binding{scrollHint, m.keys.closeView}, nil
+		return []key.Binding{scrollHint}, []key.Binding{m.keys.closeView}
 	}
 	return m.screenHints()
 }
 
-// bar is the bottom bar of spec §9.1, two rows. The first has the mode badge and the
-// counts, with the filter input after them while filtering. The second has the key
-// hints, with the global keys last. Both rows fill the width in the Mantle background.
-func (m Model) bar() []string {
-	name := m.modeName()
-	badge := m.styles.badge(name).Render(" " + name + " ")
-	first := badge + m.styles.bar.Render(" ") + m.barCounts(m.layoutWidth()-lipgloss.Width(badge)-1)
-	own, global := m.barHints()
-	second := m.styles.bar.Render(" ") + m.styles.barDim.Render(hintText(own, global, m.layoutWidth()-1))
-	if m.width == 0 {
-		return []string{first, second}
-	}
-	return []string{m.barRow(first), m.barRow(second)}
+// summary is the counts of bar row 2: the skills in Text, the invalid ones in Red,
+// and the ones that need attention in Yellow. A count of zero is dimmed.
+func (m Model) summary() string {
+	invalid, attention := m.tally()
+	sep := m.styles.dim.Render(" · ")
+	return m.count(len(m.names), "skills", m.styles.text) + sep +
+		m.count(invalid, "invalid", m.styles.fail) + sep +
+		m.count(attention, "need attention", m.styles.warn)
 }
 
-// barCounts is the counts segment of bar row 1, cut to w columns with an ellipsis.
-// While filtering, the filter input follows the counts when it fits. When it does
-// not, the counts and the query are cut together.
-func (m Model) barCounts(w int) string {
-	if m.mode != modeFilter {
-		return m.styles.barSub.Render(truncate(m.counts(), w))
-	}
-	full := m.styles.barSub.Render(m.counts()+" · ") + m.filter.View()
-	if lipgloss.Width(full) <= w {
-		return full
-	}
-	return m.styles.barSub.Render(truncate(m.counts()+" · / "+m.query, w))
+// count is n and its label in st, or in the dim style when n is zero.
+func (m Model) count(n int, label string, st lipgloss.Style) string {
+	return m.countStyle(n, st).Render(fmt.Sprintf("%d %s", n, label))
 }
 
-// hintText joins the hints to w columns. The global keys come last and are kept
-// whole while they fit. The own keys before them are cut with an ellipsis.
-func hintText(own, global []key.Binding, w int) string {
-	head, tail := joinHints(own), joinHints(global)
-	switch {
-	case tail == "":
-		return truncate(head, w)
-	case head == "":
-		return truncate(tail, w)
+// countStyle is st for a count of n, or the dim style when n is zero.
+func (m Model) countStyle(n int, st lipgloss.Style) lipgloss.Style {
+	if n == 0 {
+		return m.styles.dim
 	}
-	room := w - lipgloss.Width(tail) - lipgloss.Width(" · ")
-	if room < 1 {
-		return truncate(tail, w)
-	}
-	return truncate(head, room) + " · " + tail
+	return st
 }
 
-// barRow fills a bar row to the width in the Mantle background, and cuts what does
-// not fit.
-func (m Model) barRow(s string) string {
-	return clip(s+m.styles.bar.Render(strings.Repeat(" ", max(0, m.width-lipgloss.Width(s)))), m.width)
-}
-
-// layoutWidth is the width the bar and the screen bodies are laid out in. Before
-// the first size message nothing is cut, so it is wide enough for any text.
-func (m Model) layoutWidth() int {
-	if m.width == 0 {
-		return 1 << 16
-	}
-	return m.width
-}
-
-// counts is the main screen's count segment: skills, invalid vault skills, and
-// skills that need attention.
-func (m Model) counts() string {
-	invalid := 0
+// tally counts the invalid vault skills, and the skills that need attention.
+func (m Model) tally() (invalid, attention int) {
 	for _, s := range m.vaultSkills {
 		if !s.Valid {
 			invalid++
 		}
 	}
-	attention := 0
 	for _, name := range m.names {
 		if m.needsAttention(name) {
 			attention++
 		}
 	}
-	return fmt.Sprintf("%d skills · %d invalid · %d need attention", len(m.names), invalid, attention)
+	return invalid, attention
 }
 
 // needsAttention reports whether a skill is outdated, modified, orphaned or
@@ -454,14 +444,13 @@ func (m Model) needsAttention(name string) bool {
 	return false
 }
 
-// joinHints lists the bindings as "key description" pairs.
-func joinHints(bindings []key.Binding) string {
-	parts := make([]string, 0, len(bindings))
-	for _, b := range bindings {
-		h := b.Help()
-		parts = append(parts, h.Key+" "+h.Desc)
+// layoutWidth is the width the bar and the screen bodies are laid out in. Before
+// the first size message nothing is cut, so it is wide enough for any text.
+func (m Model) layoutWidth() int {
+	if m.width == 0 {
+		return 1 << 16
 	}
-	return strings.Join(parts, " · ")
+	return m.width
 }
 
 // fit cuts each line to the width of the terminal, so no line wraps.
@@ -607,6 +596,14 @@ func clip(s string, w int) string {
 		return ""
 	}
 	return lipgloss.NewStyle().MaxWidth(w).Render(s)
+}
+
+// capitalize upper-cases the first letter of s.
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // truncate cuts s to w columns, ending with an ellipsis when it had to cut. A width

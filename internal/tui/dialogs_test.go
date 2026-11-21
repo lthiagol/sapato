@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
 	"sapato/internal/config"
 	"sapato/internal/ops"
 	"sapato/internal/tui/theme"
@@ -31,7 +34,7 @@ func (f *fakeBackend) Create(content []byte, opts ops.Options) (ops.Action, erro
 		return ops.Action{}, fmt.Errorf("create: invalid skill: %s", strings.Join(s.Problems, "; "))
 	}
 	if f.inVault[s.Name] && !opts.Force {
-		return ops.Action{}, needsForce(fmt.Sprintf("create %s: already in the vault (use --force)", s.Name))
+		return ops.Action{}, refusal(fmt.Sprintf("create %s: already in the vault (use --force)", s.Name), "already in the vault")
 	}
 	return ops.Action{Op: ops.OpCreate, Skill: s.Name, Path: "/vault/skills/" + s.Name}, nil
 }
@@ -41,9 +44,12 @@ func (f *fakeBackend) Import(src string, opts ops.Options) ([]ops.Action, error)
 	if err := f.opErr[ops.OpImport]; err != nil {
 		return nil, err
 	}
-	name := filepath.Base(src)
+	name := strings.TrimSuffix(filepath.Base(src), ".tar.gz")
 	if f.inVault[name] && !opts.Force {
-		return nil, needsForce(fmt.Sprintf("import %s: %s is already in the vault (use --force)", src, name))
+		if strings.HasSuffix(src, ".tar.gz") {
+			return nil, refusal(fmt.Sprintf("import %s: already in the vault (use --force): %s", src, name), "already in the vault: "+name)
+		}
+		return nil, refusal(fmt.Sprintf("import %s: %s is already in the vault (use --force)", src, name), "already in the vault")
 	}
 	return []ops.Action{{Op: ops.OpImport, Skill: name, Path: "/vault/skills/" + name}}, nil
 }
@@ -56,7 +62,7 @@ func (f *fakeBackend) Remove(skill string, opts ops.Options) (ops.Action, error)
 	for _, r := range f.rows {
 		installed := r.Status == ops.Synced || r.Status == ops.Outdated || r.Status == ops.Modified
 		if r.Skill == skill && installed && !opts.Force {
-			return ops.Action{}, needsForce(fmt.Sprintf("remove %s: installed in %s (use --force)", skill, r.Agent))
+			return ops.Action{}, refusal(fmt.Sprintf("remove %s: installed in %s (use --force)", skill, r.Agent), "installed in "+r.Agent)
 		}
 	}
 	return ops.Action{Op: ops.OpRemove, Skill: skill, Path: "/vault/skills/" + skill}, nil
@@ -364,7 +370,7 @@ func TestRemoveForceFlowOnSkillScreen(t *testing.T) {
 	if m.mode != modeConfirm || !m.pending.act.force {
 		t.Fatalf("mode %v, force %t; want the force prompt", m.mode, m.pending.act.force)
 	}
-	if view := m.View(); !strings.Contains(view, "Force remove alpha?") || !strings.Contains(view, "Deletes the vault copy") {
+	if view := m.View(); !strings.Contains(view, "╭─ Force remove ") || !strings.Contains(view, "Remove alpha?") || !strings.Contains(view, "Deletes the vault copy") {
 		t.Errorf("force prompt lacks the question or its effect:\n%s", view)
 	}
 	m = press(t, m, "n")
@@ -383,7 +389,7 @@ func TestRemovePlainConfirm(t *testing.T) {
 	if m.mode != modeConfirm || m.pending.act.force {
 		t.Fatalf("mode %v, force %t; want the plain confirm", m.mode, m.pending.act.force)
 	}
-	if view := m.View(); !strings.Contains(view, "remove alpha?") || strings.Contains(view, "Force") {
+	if view := m.View(); !strings.Contains(view, "Remove alpha?") || strings.Contains(view, "Force") {
 		t.Errorf("plain confirm lacks its question or names a force:\n%s", view)
 	}
 	m = press(t, m, "y")
@@ -472,7 +478,6 @@ func TestDialogsFitTheWidth(t *testing.T) {
 // at least dialogMinW wide or the terminal when narrower. An input dialog is exactly
 // that wide.
 func TestDialogBlocksAreCentered(t *testing.T) {
-	longSkill := strings.Repeat("a-long-skill-name-", 6)
 	longPath := strings.Repeat("a-very-long-path-segment/", 12)
 	defaultRows := []ops.Row{row("alpha", "claude", ops.Unmanaged), row("beta", "claude", ops.Synced)}
 	tests := []struct {
@@ -491,9 +496,6 @@ func TestDialogBlocksAreCentered(t *testing.T) {
 		{name: "THEME", keys: []string{"t"}, want: modeTheme},
 		{name: "HELP main", keys: []string{"?"}, want: modeHelp},
 		{name: "HELP skill", keys: []string{"enter", "?"}, want: modeHelp},
-		{name: "plain confirm", rows: []ops.Row{row(longSkill, "claude", ops.NotInstalled)}, keys: []string{"enter", "D"}, want: modeConfirm},
-		{name: "force confirm", rows: []ops.Row{row(longSkill, "claude", ops.Synced)}, keys: []string{"enter", "D"}, want: modeConfirm},
-		{name: "discard confirm", keys: []string{"n", "x", "esc"}, want: modeConfirm},
 	}
 	for _, size := range [][2]int{{120, 40}, {50, 24}} {
 		for _, tt := range tests {
@@ -522,6 +524,139 @@ func TestDialogBlocksAreCentered(t *testing.T) {
 					t.Errorf("input block is %d wide, want %d", block, want)
 				}
 			})
+		}
+	}
+}
+
+// TestConfirmBoxIsCentered checks the confirm box over the screen it came from: the
+// box is centered in a column and a row, as wide as its text within the bounds, its
+// border is Accent for a plain confirm and Red for a force, the screen still shows
+// outside it, and the text it must hold is there, wrapped if it runs long.
+func TestConfirmBoxIsCentered(t *testing.T) {
+	longSkill := strings.Repeat("a-long-skill-name-", 6)
+	tests := []struct {
+		name  string
+		rows  []ops.Row
+		keys  []string
+		start func(t *testing.T, w, h int) Model // builds the screen, for a confirm that keys do not reach
+		title string                             // the title of the box's border
+		force bool
+		under string   // text the screen shows outside the box
+		text  []string // text the box holds, each piece on one line whatever the width
+	}{
+		{name: "plain uninstall", rows: []ops.Row{row(longSkill, "claude", ops.Synced)}, keys: []string{"enter", "u"}, title: "Uninstall", under: "AGENTS"},
+		{name: "plain remove", rows: []ops.Row{row(longSkill, "claude", ops.NotInstalled)}, keys: []string{"enter", "D"}, title: "Remove", under: "AGENTS"},
+		{name: "force confirm", rows: []ops.Row{row(longSkill, "claude", ops.Synced)}, keys: []string{"enter", "D"}, title: "Force remove", force: true, under: "AGENTS"},
+		{name: "discard confirm", keys: []string{"n", "x", "esc"}, title: "Discard", under: "invalid:"},
+		{name: "config prompt", start: firstRun(false, true), title: "Create config", under: "SKILL", text: []string{"defaults for this run."}},
+		{name: "vault prompt", start: firstRun(true, false), title: "Create vault", under: "SKILL", text: []string{"Creates sapato.toml", "exits."}},
+	}
+	for _, size := range [][2]int{{120, 40}, {60, 20}, {50, 24}} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s at %dx%d", tt.name, size[0], size[1]), func(t *testing.T) {
+				var m Model
+				if tt.start != nil {
+					m = tt.start(t, size[0], size[1])
+				} else {
+					rows := tt.rows
+					if rows == nil {
+						rows = []ops.Row{row("alpha", "claude", ops.Unmanaged), row("beta", "claude", ops.Synced)}
+					}
+					m = press(t, sized(t, loaded(t, &fakeBackend{rows: rows}, dialogAgents), size[0], size[1]), tt.keys...)
+				}
+				if m.mode != modeConfirm || m.pending.act.force != tt.force {
+					t.Fatalf("mode = %v, force = %t; want the confirm", m.mode, m.pending.act.force)
+				}
+				view := m.View()
+				lines := strings.Split(view, "\n")
+				plain := make([]string, len(lines))
+				for i, l := range lines {
+					plain[i] = sgr.ReplaceAllString(l, "")
+				}
+				// The box is the border titled with the action, and its rows run down to the
+				// corner under the same column.
+				top, left, right := -1, 0, 0
+				for i, l := range plain {
+					if idx := strings.Index(l, "╭─ "+tt.title+" "); idx >= 0 {
+						top, left = i, lipgloss.Width(l[:idx])
+						right = left + lipgloss.Width(l[idx:strings.Index(l[idx:], "╮")+idx]) + 1
+						break
+					}
+				}
+				bottom := -1
+				for i := top + 1; top >= 0 && i < len(plain); i++ {
+					if idx := strings.Index(plain[i], "╰"); idx >= 0 && lipgloss.Width(plain[i][:idx]) == left {
+						bottom = i
+						break
+					}
+				}
+				if top < 0 || bottom < 0 {
+					t.Fatalf("no confirm box titled %q in view:\n%s", tt.title, view)
+				}
+				boxW := right - left
+				least := min(confirmMinW, size[0]-4)
+				if boxW < least || boxW > size[0]-4 {
+					t.Errorf("box is %d wide, want between %d and %d", boxW, least, size[0]-4)
+				}
+				if d := left - (size[0]-boxW)/2; d < -1 || d > 1 {
+					t.Errorf("box starts at column %d, want it centered in %d columns", left, size[0])
+				}
+				bodyTop := m.headerHeight() + 1
+				if d := top - bodyTop - (m.bodyHeight()-(bottom-top+1))/2; d < -1 || d > 1 {
+					t.Errorf("box rows %d to %d, want them centered in the body", top, bottom)
+				}
+				if !strings.Contains(view, tt.under) {
+					t.Errorf("the screen does not show %q outside the box:\n%s", tt.under, view)
+				}
+				for _, want := range tt.text {
+					if !strings.Contains(view, want) {
+						t.Errorf("confirm box lacks %q:\n%s", want, view)
+					}
+				}
+				// The colors are checked on a colored set, since the test models draw without.
+				m.styles = newStyles(m.th, false)
+				want := m.th.Accent
+				if tt.force {
+					want = m.th.Red
+				}
+				if got := m.confirmBorder().GetForeground(); got != want {
+					t.Errorf("border color = %v, want %v", got, want)
+				}
+			})
+		}
+	}
+}
+
+// firstRun returns the first-launch prompt for a missing config or vault, drawn at
+// w by h over the main screen.
+func firstRun(fileExists, vaultExists bool) func(t *testing.T, w, h int) Model {
+	return func(t *testing.T, w, h int) Model {
+		th, set := testLook(t)
+		cfg := promptConfig(t, filepath.Join(t.TempDir(), "config.toml"), fileExists, vaultExists)
+		return sized(t, promptModel(t, cfg, th, set), w, h)
+	}
+}
+
+// TestConfirmModalDimsTheScreenOutsideTheBox checks that every row of the modal is
+// either a row of the box or the screen's row with its styles stripped and drawn in
+// Overlay.
+func TestConfirmModalDimsTheScreenOutsideTheBox(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.NotInstalled)}}
+	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 80, 24), "enter", "D")
+	under := m
+	under.mode = m.pending.act.back
+	screen := fitRows(under.body(), m.bodyHeight())
+	box, _ := m.confirmBox()
+	lines := m.confirmModal()
+	if len(lines) != len(screen) {
+		t.Fatalf("modal has %d rows, want the screen's %d", len(lines), len(screen))
+	}
+	for i, l := range lines {
+		if slices.ContainsFunc(box, func(row string) bool { return strings.Contains(l, row) }) {
+			continue
+		}
+		if want := m.styles.dim.Render(ansi.Strip(screen[i])); l != want {
+			t.Errorf("row %d = %q, want the screen row dimmed %q", i, l, want)
 		}
 	}
 }

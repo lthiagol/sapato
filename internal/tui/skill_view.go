@@ -304,24 +304,31 @@ func ellipsis(s string, w int) string {
 	return string(runes) + "…"
 }
 
-// treeLines lists the files as a tree. A folder is a line with name/, and its
-// children follow two columns in. Folders come before files, each sorted by name.
-// A file shows its exec glyph and its size, right-aligned to w.
+// treeLines lists the files as a tree drawn like tree(1). Each child has a branch
+// glyph, the last child of a folder the last-branch glyph, and the lines of the
+// folders above it run down past their branch. Folders come before files, each sorted
+// by name. A file shows its exec glyph and its size, right-aligned to w.
 func (m Model) treeLines(w int, files []ops.File) []string {
 	var lines []string
-	var walk func(n *treeNode, depth int)
-	walk = func(n *treeNode, depth int) {
-		indent := strings.Repeat("  ", depth)
-		for _, k := range slices.SortedFunc(slices.Values(n.kids), treeOrder(depth == 0)) {
+	blank := strings.Repeat(" ", lipgloss.Width(m.icons.Pipe))
+	var walk func(n *treeNode, prefix string, depth int)
+	walk = func(n *treeNode, prefix string, depth int) {
+		kids := slices.SortedFunc(slices.Values(n.kids), treeOrder(depth == 0))
+		for i, k := range kids {
+			branch, below := m.icons.Branch, m.icons.Pipe
+			if i == len(kids)-1 {
+				branch, below = m.icons.Last, blank
+			}
+			head := prefix + branch
 			if k.file == nil {
-				lines = append(lines, m.draw(w, false, seg{indent + k.name + "/", lipgloss.NewStyle()}))
-				walk(k, depth+1)
+				lines = append(lines, m.draw(w, false, seg{head, m.styles.dim}, seg{k.name + "/", lipgloss.NewStyle()}))
+				walk(k, prefix+below, depth+1)
 				continue
 			}
-			lines = append(lines, m.fileLine(w, indent, k))
+			lines = append(lines, m.fileLine(w, head, k))
 		}
 	}
-	walk(fileTree(files), 0)
+	walk(fileTree(files), "", 0)
 	return lines
 }
 
@@ -383,21 +390,23 @@ func segsWidth(segs []seg) int {
 	return w
 }
 
-// fileLine is one file of the tree at indent: its name, its exec glyph when it is
-// executable, and its size, right-aligned to w. A long name gives way to the size.
-func (m Model) fileLine(w int, indent string, n *treeNode) string {
+// fileLine is one file of the tree after head, its branch and the lines above it: its
+// name, its exec glyph when it is executable, and its size, right-aligned to w. A long
+// name gives way to the size.
+func (m Model) fileLine(w int, head string, n *treeNode) string {
 	size := humanSize(n.file.Size)
 	tail := ""
 	if n.file.Exec {
 		tail = " " + m.icons.Exec
 	}
 	name := n.name
-	if room := w - lipgloss.Width(indent+tail) - lipgloss.Width(size) - 1; lipgloss.Width(name) > room {
+	if room := w - lipgloss.Width(head+tail) - lipgloss.Width(size) - 1; lipgloss.Width(name) > room {
 		name = truncate(name, max(1, room))
 	}
-	gap := max(1, w-lipgloss.Width(indent+name+tail)-lipgloss.Width(size))
+	gap := max(1, w-lipgloss.Width(head+name+tail)-lipgloss.Width(size))
 	return m.draw(w, false,
-		seg{indent + name, lipgloss.NewStyle()},
+		seg{head, m.styles.dim},
+		seg{name, lipgloss.NewStyle()},
 		seg{tail, m.styles.accent},
 		seg{strings.Repeat(" ", gap), lipgloss.NewStyle()},
 		seg{size, m.styles.dim},

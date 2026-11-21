@@ -77,11 +77,11 @@ type action struct {
 }
 
 // pending is an action that waits for y or n. A plain confirm shows plan. A
-// force prompt has act.force set and shows the reason ops refused without it.
+// force prompt has act.force set and shows the reasons ops refused without it.
 type pending struct {
-	act    action
-	plan   []ops.Action
-	reason string
+	act     action
+	plan    []ops.Action
+	reasons []string
 }
 
 // Model is the state of the UI. Update is a pure transition from a message to
@@ -397,6 +397,8 @@ func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openExport()
 	case key.Matches(msg, k.remove):
 		return m.startRemove()
+	case key.Matches(msg, k.theme):
+		return m.openTheme(), nil
 	case key.Matches(msg, k.esc):
 		m.screen = screenMain
 		m.marks = map[string]bool{}
@@ -538,10 +540,10 @@ func (m Model) openDiff() (Model, tea.Cmd) {
 // opens the force prompt. An uninstall opens the plain confirm. Anything else
 // applies at once.
 func (m Model) onPlan(msg planMsg) (Model, tea.Cmd) {
-	if reason, ok := forceReason(msg.plan, msg.err); ok {
+	if reasons, ok := forceReasons(msg.plan, msg.err); ok {
 		act := msg.act
 		act.force = true
-		m.pending = pending{act: act, reason: reason}
+		m.pending = pending{act: act, reasons: reasons}
 		m.mode = modeConfirm
 		return m, nil
 	}
@@ -561,19 +563,21 @@ func (m Model) onPlan(msg planMsg) (Model, tea.Cmd) {
 	return m, applyCmd(m.backend, msg.act)
 }
 
-// forceReason reports whether an unforced dry run was refused for want of
-// --force, with the reason. ops refuses with ErrNeedsForce, or an update plans
-// to skip a modified copy.
-func forceReason(plan []ops.Action, err error) (string, bool) {
-	if errors.Is(err, ops.ErrNeedsForce) {
-		return err.Error(), true
+// forceReasons reports whether an unforced dry run was refused for want of --force,
+// with the reasons, one line each. ops refuses with a ForceRefusal, or an update
+// plans to skip a modified copy.
+func forceReasons(plan []ops.Action, err error) ([]string, bool) {
+	var refusal *ops.ForceRefusal
+	if errors.As(err, &refusal) {
+		return refusal.Reasons, true
 	}
+	var reasons []string
 	for _, a := range plan {
 		if a.Op == ops.OpSkip && a.Reason == ops.ReasonModified {
-			return describe(a), true
+			reasons = append(reasons, a.Agent+" has local edits (modified)")
 		}
 	}
-	return "", false
+	return reasons, len(reasons) > 0
 }
 
 // confirmKey applies the pending action on y. Any other key cancels it, so a

@@ -204,25 +204,3 @@ func (t Theme) StatusColor(s ops.State) lipgloss.Color {
 	}
 	return t.Text
 }
-
-// ModeColor is the badge color of a mode name from spec §9.4. HELP, LOG and any
-// unknown name get the overlay color.
-func (t Theme) ModeColor(mode string) lipgloss.Color {
-	switch mode {
-	case "MAIN":
-		return t.Accent
-	case "SKILL":
-		return t.Green
-	case "FILTER":
-		return t.Yellow
-	case "ADOPT":
-		return t.Purple
-	case "NEW":
-		return t.Orange
-	case "IMPORT", "EXPORT":
-		return t.Cyan
-	case "THEME":
-		return t.Pink
-	}
-	return t.Overlay
-}

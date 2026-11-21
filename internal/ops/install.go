@@ -89,7 +89,7 @@ func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Option
 	}
 	dirs := agentDirs(agents)
 	var actions []Action
-	var refused []string
+	var refused, reasons []string
 	for _, r := range rows {
 		s, ok := byName[r.Skill]
 		if !ok {
@@ -101,12 +101,17 @@ func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Option
 		}
 		if (r.Status == Unmanaged || r.Status == Modified) && !opts.Force {
 			refused = append(refused, fmt.Sprintf("%s in %s: %s", r.Skill, r.Agent, r.Status))
+			if r.Status == Modified {
+				reasons = addReason(reasons, r.Agent+" has local edits (modified)")
+			} else {
+				reasons = addReason(reasons, r.Agent+" has an unmanaged copy")
+			}
 			continue
 		}
 		actions = append(actions, Action{Op: OpInstall, Skill: r.Skill, Agent: r.Agent, Path: filepath.Join(dirs[r.Agent], r.Skill)})
 	}
 	if len(refused) > 0 {
-		return nil, fmt.Errorf("install: %w", forceRefusal(fmt.Sprintf("refusing to overwrite %s (use --force)", strings.Join(refused, "; "))))
+		return nil, fmt.Errorf("install: %w", forceRefusal(fmt.Sprintf("refusing to overwrite %s (use --force)", strings.Join(refused, "; ")), reasons...))
 	}
 	if opts.DryRun {
 		return actions, nil

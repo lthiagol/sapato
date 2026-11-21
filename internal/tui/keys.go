@@ -82,14 +82,16 @@ var (
 	restoreHint = key.NewBinding(key.WithHelp("esc", "restore"))
 )
 
-// mainHints lists the main screen's own bindings in hint order.
+// mainHints lists the main screen's own bindings in hint order: the actions the bar
+// shows in its first row.
 func (k keyMap) mainHints() []key.Binding {
-	return []key.Binding{moveHint, k.enter, k.filter, k.refresh, k.adopt, k.newSkill, k.importTar, k.theme}
+	return []key.Binding{k.enter, k.filter, k.refresh, k.adopt, k.newSkill, k.importTar}
 }
 
-// mainGlobals lists the main screen's global bindings. The bar shows them last.
+// mainGlobals lists the main screen's global bindings, which the bar shows in its
+// second row.
 func (k keyMap) mainGlobals() []key.Binding {
-	return []key.Binding{k.log, k.help, k.quit}
+	return []key.Binding{moveHint, k.theme, k.log, k.help, k.quit}
 }
 
 // filterHints lists the bindings the bar shows while filtering.
@@ -97,13 +99,14 @@ func (k keyMap) filterHints() []key.Binding {
 	return []key.Binding{filterApplyHint, filterClearHint}
 }
 
-// skillHints lists the skill screen's own bindings in hint order.
+// skillHints lists the skill screen's own bindings in hint order: the actions the bar
+// shows in its first row.
 func (k keyMap) skillHints() []key.Binding {
-	return []key.Binding{moveHint, pageHint, k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.export, k.remove}
+	return []key.Binding{k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.export, k.remove}
 }
 
-// skillGlobals lists the skill screen's global bindings, back first. The bar shows
-// them last.
+// skillGlobals lists the skill screen's global bindings, which the bar shows in its
+// second row, back first.
 func (k keyMap) skillGlobals() []key.Binding {
-	return []key.Binding{backHint, k.log, k.help, k.quit}
+	return []key.Binding{moveHint, pageHint, backHint, k.theme, k.log, k.help, k.quit}
 }

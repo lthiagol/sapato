@@ -74,7 +74,8 @@ func TestToastSitsBottomRightAboveTheBar(t *testing.T) {
 	after := plainLines(m.View())
 
 	x := toastCol(80)
-	top, msg, bottom := after[len(after)-5], after[len(after)-4], after[len(after)-3]
+	// The bar is a rule and two rows, so the toast sits three lines above the end.
+	top, msg, bottom := after[len(after)-6], after[len(after)-5], after[len(after)-4]
 	if r := runesAt(top, 80); r[x] != '╭' || r[78] != '╮' || r[79] != ' ' {
 		t.Errorf("top border is not at columns %d-78 with a blank column 79: %q", x, top)
 	}
@@ -91,7 +92,7 @@ func TestToastSitsBottomRightAboveTheBar(t *testing.T) {
 		if got, want := string(runesAt(line, x)[:x]), string(runesAt(before[i], x)[:x]); got != want {
 			t.Errorf("line %d left of the toast = %q, want %q", i, got, want)
 		}
-		if i >= len(after)-5 && i <= len(after)-3 {
+		if i >= len(after)-6 && i <= len(after)-4 {
 			if w := lipgloss.Width(line); w != 80 {
 				t.Errorf("line %d is %d columns with the toast, want 80: %q", i, w, line)
 			}
@@ -242,8 +243,8 @@ func TestLogScrollsWithinTheEntriesAndCloses(t *testing.T) {
 		t.Errorf("LOG opens at the newest entry; want note 29 shown and note 00 scrolled off:\n%s", view)
 	}
 	m = press(t, m, "g")
-	if view := m.View(); !strings.Contains(view, "note 00") || !strings.Contains(view, "note 17") || strings.Contains(view, "note 18") {
-		t.Errorf("after g: want note 00 to note 17 shown:\n%s", view)
+	if view := m.View(); !strings.Contains(view, "note 00") || !strings.Contains(view, "note 16") || strings.Contains(view, "note 17") {
+		t.Errorf("after g: want note 00 to note 16 shown:\n%s", view)
 	}
 	m = press(t, m, "G")
 	if view := m.View(); !strings.Contains(view, "note 29") {
@@ -288,11 +289,11 @@ func TestLogIsIgnoredWhereItIsText(t *testing.T) {
 
 func TestLogKeyIsInEveryScreensHints(t *testing.T) {
 	m, _ := layoutModel(t, 120, 40)
-	if hints := joinHints(m.hints()); !strings.Contains(hints, "L log") {
+	if hints := sgr.ReplaceAllString(m.hintText(m.hints()), ""); !strings.Contains(hints, "L log") {
 		t.Errorf("grid hints lack L log: %q", hints)
 	}
 	m = press(t, m, "enter")
-	if hints := joinHints(m.hints()); !strings.Contains(hints, "L log") {
+	if hints := sgr.ReplaceAllString(m.hintText(m.hints()), ""); !strings.Contains(hints, "L log") {
 		t.Errorf("skill hints lack L log: %q", hints)
 	}
 }

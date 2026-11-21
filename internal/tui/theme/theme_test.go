@@ -108,27 +108,3 @@ func TestStatusColorUsesRoles(t *testing.T) {
 		}
 	}
 }
-
-func TestModeColorUsesRoles(t *testing.T) {
-	th, _ := ByName("catppuccin-mocha")
-	tests := []struct {
-		mode string
-		want lipgloss.Color
-	}{
-		{"MAIN", th.Accent},
-		{"SKILL", th.Green},
-		{"FILTER", th.Yellow},
-		{"ADOPT", th.Purple},
-		{"NEW", th.Orange},
-		{"IMPORT", th.Cyan},
-		{"EXPORT", th.Cyan},
-		{"THEME", th.Pink},
-		{"HELP", th.Overlay},
-		{"UNKNOWN", th.Overlay},
-	}
-	for _, tt := range tests {
-		if got := th.ModeColor(tt.mode); got != tt.want {
-			t.Errorf("ModeColor(%s) = %s, want %s", tt.mode, got, tt.want)
-		}
-	}
-}

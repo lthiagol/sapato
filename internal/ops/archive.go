@@ -87,7 +87,7 @@ func importArchive(v *vault.Vault, src string, opts ImportOptions) ([]Action, er
 		actions = append(actions, Action{Op: OpImport, Skill: s.Name, Path: dest})
 	}
 	if len(present) > 0 && !opts.Force {
-		return nil, forceRefusal("already in the vault (use --force): " + strings.Join(present, ", "))
+		return nil, forceRefusal("already in the vault (use --force): "+strings.Join(present, ", "), "already in the vault: "+strings.Join(present, ", "))
 	}
 	if opts.DryRun {
 		return actions, nil

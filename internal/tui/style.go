@@ -43,12 +43,12 @@ type styles struct {
 	rule    lipgloss.Style
 	border  lipgloss.Style // the borders of the skill screen's panes
 	focus   lipgloss.Style // the border of the focused pane, the sidebar
-	bar     lipgloss.Style
-	barDim  lipgloss.Style
-	barSub  lipgloss.Style
 	ok      lipgloss.Style
 	info    lipgloss.Style
 	row     lipgloss.Style
+	text    lipgloss.Style // the skill count of the bar
+	warn    lipgloss.Style // the attention count of the bar
+	hintKey lipgloss.Style // the key of a hint: Accent, bold
 }
 
 func newStyles(th theme.Theme, noColor bool) styles {
@@ -78,11 +78,11 @@ func newStyles(th theme.Theme, noColor bool) styles {
 		rule:    paint(th.Overlay, ""),
 		border:  paint(th.Overlay, ""),
 		focus:   paint(th.Accent, ""),
-		bar:     paint(th.Text, th.Mantle),
-		barDim:  paint(th.Overlay, th.Mantle),
-		barSub:  paint(th.Subtext, th.Mantle),
 		ok:      paint(th.Green, ""),
 		info:    paint(th.Accent, ""),
+		text:    paint(th.Text, ""),
+		warn:    paint(th.Yellow, ""),
+		hintKey: paint(th.Accent, "").Bold(true),
 	}
 	for _, st := range states {
 		s.glyph[st.state] = paint(th.StatusColor(st.state), "")
@@ -95,12 +95,4 @@ func newStyles(th theme.Theme, noColor bool) styles {
 		s.focus = s.bold
 	}
 	return s
-}
-
-// badge paints the mode badge of name in its mode color.
-func (s styles) badge(name string) lipgloss.Style {
-	if s.noColor {
-		return s.bold.Reverse(true)
-	}
-	return lipgloss.NewStyle().Bold(true).Foreground(s.th.Base).Background(s.th.ModeColor(name))
 }

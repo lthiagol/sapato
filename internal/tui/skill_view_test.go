@@ -8,37 +8,37 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
 	"sapato/internal/target"
+	"sapato/internal/tui/icons"
 )
 
-// filesOf lists the FILES block of the details pane in view, one line per tree
-// line, with the inner spaces of each line collapsed to one. The indent is kept.
-func filesOf(view string) []string {
+// treeChars are the glyphs a tree line starts with: the connectors of both icon sets
+// and the spaces that indent under a branch.
+const treeChars = "│├└─|`- "
+
+// filesOf lists the FILES block of the details pane of m, one string per line. The
+// tree prefix is kept as drawn; the text after it has its inner spaces collapsed to
+// one, so the right-aligned sizes compare as plain text.
+func filesOf(m Model) []string {
 	var out []string
 	in := false
-	for _, line := range strings.Split(view, "\n") {
-		parts := strings.Split(line, "│")
-		if len(parts) < 3 {
-			continue
-		}
-		text := parts[len(parts)-2]
-		indent := len(text) - len(strings.TrimLeft(text, " "))
-		rest := strings.Join(strings.Fields(text), " ")
-		if rest == "" {
-			if in {
-				break
-			}
-			continue
-		}
-		if strings.HasPrefix(rest, "FILES") {
+	for _, line := range m.detailLines(m.skillLayout().detail.w - 4) {
+		text := strings.TrimRight(ansi.Strip(line), " ")
+		if strings.HasPrefix(text, "FILES") {
 			in = true
 		}
-		if in {
-			out = append(out, strings.Repeat(" ", max(0, indent-1))+rest)
+		if !in {
+			continue
 		}
+		if text == "" {
+			break
+		}
+		prefix := text[:len(text)-len(strings.TrimLeft(text, treeChars))]
+		out = append(out, prefix+strings.Join(strings.Fields(text[len(prefix):]), " "))
 	}
 	return out
 }
@@ -48,30 +48,48 @@ func TestSkillFilesTreeOfFixtureSkills(t *testing.T) {
 		skill string
 		want  []string
 	}{
-		{"mocked-skill-00001", []string{"FILES (1)", "SKILL.md 405 B"}},
+		{"mocked-skill-00001", []string{"FILES (1)", "└── SKILL.md 405 B"}},
 		{"mocked-skill-00003", []string{
-			"FILES (4)", "SKILL.md 644 B", "references/", "  guides/", "    advanced.md 248 B", "  api.md 222 B", "  overview.md 224 B",
+			"FILES (4)", "├── SKILL.md 644 B", "└── references/",
+			"    ├── guides/", "    │   └── advanced.md 248 B", "    ├── api.md 222 B", "    └── overview.md 224 B",
 		}},
 		{"mocked-skill-00004", []string{
-			"FILES (4)", "SKILL.md 630 B", "scripts/", "  README.md 114 B", "  check.py ⚙ 154 B", "  run.sh ⚙ 155 B",
+			"FILES (4)", "├── SKILL.md 630 B", "└── scripts/",
+			"    ├── README.md 114 B", "    ├── check.py ⚙ 154 B", "    └── run.sh ⚙ 155 B",
 		}},
-		{"mocked-skill-00005", []string{"FILES (3)", "SKILL.md 590 B", "assets/", "  logo.png 70 B", "  template.txt 130 B"}},
+		{"mocked-skill-00005", []string{
+			"FILES (3)", "├── SKILL.md 590 B", "└── assets/", "    ├── logo.png 70 B", "    └── template.txt 130 B",
+		}},
 		{"mocked-skill-00006", []string{
-			"FILES (9)", "SKILL.md 773 B",
-			"assets/", "  logo.png 70 B", "  template.txt 130 B",
-			"references/", "  guides/", "    advanced.md 136 B", "  api.md 110 B", "  overview.md 120 B",
-			"scripts/", "  README.md 114 B", "  check.py ⚙ 154 B", "  run.sh ⚙ 155 B",
+			"FILES (9)", "├── SKILL.md 773 B",
+			"├── assets/", "│   ├── logo.png 70 B", "│   └── template.txt 130 B",
+			"├── references/", "│   ├── guides/", "│   │   └── advanced.md 136 B", "│   ├── api.md 110 B", "│   └── overview.md 120 B",
+			"└── scripts/", "    ├── README.md 114 B", "    ├── check.py ⚙ 154 B", "    └── run.sh ⚙ 155 B",
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.skill, func(t *testing.T) {
 			m, _, _ := fixtureModel(t)
 			m = onSkill(t, sized(t, m, 120, 40), tt.skill, "claude")
-			got := filesOf(m.View())
+			got := filesOf(m)
 			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
 				t.Errorf("FILES block:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(tt.want, "\n"))
 			}
 		})
+	}
+}
+
+// TestTreeUsesTheAsciiConnectors checks the tree of fixture 00003 in the ascii set.
+func TestTreeUsesTheAsciiConnectors(t *testing.T) {
+	m, _, _ := fixtureModel(t)
+	m = onSkill(t, sized(t, m, 120, 40), "mocked-skill-00003", "claude")
+	m.icons, _ = icons.ByName("ascii")
+	want := []string{
+		"FILES (4)", "|-- SKILL.md 644 B", "`-- references/",
+		"    |-- guides/", "    |   `-- advanced.md 248 B", "    |-- api.md 222 B", "    `-- overview.md 224 B",
+	}
+	if got := filesOf(m); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("FILES block:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
@@ -88,8 +106,8 @@ func TestSkillFilesTreeHidesDotPathsAndSymlinks(t *testing.T) {
 func TestOrphanedSkillListsItsInstalledFiles(t *testing.T) {
 	m, _, _ := fixtureModel(t)
 	m = onSkill(t, sized(t, m, 120, 40), "mocked-skill-00099", "claude")
-	want := []string{"FILES (1, installed in claude)", "SKILL.md 176 B"}
-	if got := filesOf(m.View()); strings.Join(got, "\n") != strings.Join(want, "\n") {
+	want := []string{"FILES (1, installed in claude)", "└── SKILL.md 176 B"}
+	if got := filesOf(m); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("FILES block:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
@@ -97,7 +115,7 @@ func TestOrphanedSkillListsItsInstalledFiles(t *testing.T) {
 func TestSkillWithoutCopyReportsNoFiles(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Missing)}}
 	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 120, 40), "enter")
-	if got := filesOf(m.View()); strings.Join(got, "\n") != "FILES\nno files" {
+	if got := filesOf(m); strings.Join(got, "\n") != "FILES\nno files" {
 		t.Errorf("FILES block = %q, want the title and no files", got)
 	}
 }
@@ -157,7 +175,7 @@ func TestFailedDetailLoadStopsLoading(t *testing.T) {
 		{name: "files fail, so there are no files", filesErr: errors.New("files unreadable"),
 			wantFiles: "FILES\nno files"},
 		{name: "lock fails, and the files still show", lockErr: errors.New("lock unreadable"),
-			wantFiles: "FILES (1)\nSKILL.md 70 B"},
+			wantFiles: "FILES (1)\n└── SKILL.md 70 B"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -172,7 +190,7 @@ func TestFailedDetailLoadStopsLoading(t *testing.T) {
 			if strings.Contains(view, "loading…") {
 				t.Errorf("details still say loading…:\n%s", view)
 			}
-			if got := strings.Join(filesOf(view), "\n"); got != tt.wantFiles {
+			if got := strings.Join(filesOf(m), "\n"); got != tt.wantFiles {
 				t.Errorf("FILES block:\n%s\nwant:\n%s", got, tt.wantFiles)
 			}
 			want := tt.filesErr
@@ -360,10 +378,11 @@ func TestBarRowOneCutsWithAnEllipsis(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimRight(plain, " "), "…") {
 		t.Errorf("row 1 is not cut with an ellipsis: %q", plain)
 	}
+	// The filter's input and hints fit in 40 columns, so they show whole.
 	m = press(t, m, "/", "a")
 	first, _ = barRows(m.View())
-	if plain := sgr.ReplaceAllString(first, ""); !strings.HasSuffix(strings.TrimRight(plain, " "), "…") || lipgloss.Width(plain) != 40 {
-		t.Errorf("filtering row 1 = %q, want it cut with an ellipsis at 40 columns", plain)
+	if plain := sgr.ReplaceAllString(first, ""); strings.Contains(plain, "…") || !strings.Contains(plain, "enter apply · esc clear") || lipgloss.Width(plain) != 40 {
+		t.Errorf("filtering row 1 = %q, want the input and its hints whole at 40 columns", plain)
 	}
 }
 

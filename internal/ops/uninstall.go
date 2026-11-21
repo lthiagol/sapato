@@ -36,7 +36,7 @@ func Uninstall(v *vault.Vault, agents []config.Agent, skills []string, opts Opti
 	literal := literalNames(skills)
 	dirs := agentDirs(agents)
 	var actions []Action
-	var unmanaged, modified []string
+	var unmanaged, modified, reasons []string
 	for _, r := range rows {
 		switch {
 		case r.Status == NotInstalled || r.Status == Invalid:
@@ -49,6 +49,7 @@ func Uninstall(v *vault.Vault, agents []config.Agent, skills []string, opts Opti
 			continue
 		case r.Status == Modified && !opts.Force:
 			modified = append(modified, fmt.Sprintf("%s in %s: modified", r.Skill, r.Agent))
+			reasons = addReason(reasons, r.Agent+" has local edits (modified)")
 			continue
 		}
 		// Lock keys come from disk, so check them before anything is removed.
@@ -62,7 +63,7 @@ func Uninstall(v *vault.Vault, agents []config.Agent, skills []string, opts Opti
 		return nil, fmt.Errorf("uninstall: refusing to remove %s", strings.Join(unmanaged, "; "))
 	}
 	if len(modified) > 0 {
-		return nil, fmt.Errorf("uninstall: %w", forceRefusal(fmt.Sprintf("refusing to remove %s (use --force)", strings.Join(modified, "; "))))
+		return nil, fmt.Errorf("uninstall: %w", forceRefusal(fmt.Sprintf("refusing to remove %s (use --force)", strings.Join(modified, "; ")), reasons...))
 	}
 	if opts.DryRun {
 		return actions, nil

@@ -204,7 +204,23 @@ func TestBarShowsTheFilterInput(t *testing.T) {
 	m := sized(t, loaded(t, b, []config.Agent{claude}), 80, 24)
 	m = press(t, m, "/", "a")
 	first, second := barRows(m.View())
-	if !strings.Contains(first, "FILTER") || !strings.Contains(sgr.ReplaceAllString(first, ""), m.counts()+" · / a") || !strings.Contains(second, "esc clear") {
-		t.Errorf("filter bar = %q / %q, want the badge, the counts, then the input, then the hints", first, second)
+	if plain := sgr.ReplaceAllString(first, ""); !strings.Contains(plain, "/ a") || !strings.Contains(plain, "enter apply · esc clear") {
+		t.Errorf("filter bar row 1 = %q, want the input, then its hints", plain)
+	}
+	if plain := sgr.ReplaceAllString(second, ""); !strings.Contains(plain, "1 skills · 0 invalid · 0 need attention") {
+		t.Errorf("filter bar row 2 = %q, want the counts", plain)
+	}
+}
+
+// TestThemeOpensFromTheSkillScreenAndEscReturnsToIt checks that t opens THEME on the
+// skill screen, and that esc closes it back to the skill screen.
+func TestThemeOpensFromTheSkillScreenAndEscReturnsToIt(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
+	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "t")
+	if m.mode != modeTheme || m.screen != screenSkill {
+		t.Fatalf("mode = %v, screen = %v; want THEME over the skill screen", m.mode, m.screen)
+	}
+	if m = press(t, m, "esc"); m.mode != modeNormal || m.screen != screenSkill {
+		t.Errorf("after esc: mode = %v, screen = %v; want the skill screen", m.mode, m.screen)
 	}
 }

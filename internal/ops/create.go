@@ -24,7 +24,7 @@ func Create(v *vault.Vault, content []byte, opts Options) (Action, error) {
 		return Action{}, fmt.Errorf("create %s: %w", s.Name, err)
 	}
 	if present && !opts.Force {
-		return Action{}, fmt.Errorf("create %s: %w", s.Name, forceRefusal("already in the vault (use --force)"))
+		return Action{}, fmt.Errorf("create %s: %w", s.Name, forceRefusal("already in the vault (use --force)", "already in the vault"))
 	}
 
 	action := Action{Op: OpCreate, Skill: s.Name, Path: dest}

@@ -75,13 +75,11 @@ func (f *fakeBackend) Skills() ([]vault.Skill, error) {
 	return skills, nil
 }
 
-// needsForce is a refusal shaped like ops': its text is msg, and it matches
-// ops.ErrNeedsForce.
-type needsForce string
-
-func (e needsForce) Error() string { return string(e) }
-
-func (e needsForce) Unwrap() error { return ops.ErrNeedsForce }
+// refusal is what ops returns for a refusal that --force overrides: msg is its CLI
+// text and reasons are what the prompt shows.
+func refusal(msg string, reasons ...string) error {
+	return &ops.ForceRefusal{Msg: msg, Reasons: reasons}
+}
 
 // state is the status the fake reports for skill in agent, or "" for none.
 func (f *fakeBackend) state(skill, agent string) ops.State {
@@ -113,9 +111,11 @@ func (f *fakeBackend) run(op string, agents []config.Agent, skills []string, opt
 			case op == ops.OpUpdate && state == ops.Modified:
 				acts = append(acts, ops.Action{Op: ops.OpSkip, Skill: skills[0], Agent: a.ID, Reason: ops.ReasonModified})
 				continue
-			case op == ops.OpInstall && (state == ops.Unmanaged || state == ops.Modified),
+			case op == ops.OpInstall && state == ops.Unmanaged:
+				return nil, refusal(fmt.Sprintf("%s %s in %s: %s (use --force)", op, skills[0], a.ID, state), a.ID+" has an unmanaged copy")
+			case op == ops.OpInstall && state == ops.Modified,
 				op == ops.OpUninstall && state == ops.Modified:
-				return nil, needsForce(fmt.Sprintf("%s %s in %s: %s (use --force)", op, skills[0], a.ID, state))
+				return nil, refusal(fmt.Sprintf("%s %s in %s: %s (use --force)", op, skills[0], a.ID, state), a.ID+" has local edits (modified)")
 			}
 		}
 		acts = append(acts, ops.Action{Op: op, Skill: skills[0], Agent: a.ID, Path: filepath.Join(a.Path, skills[0])})
@@ -142,7 +142,7 @@ func (f *fakeBackend) Adopt(agent config.Agent, skill string, opts ops.Options) 
 		return ops.Action{}, err
 	}
 	if f.inVault[skill] && !opts.Force {
-		return ops.Action{}, needsForce(fmt.Sprintf("adopt %s in %s: already in the vault (use --force)", skill, agent.ID))
+		return ops.Action{}, refusal(fmt.Sprintf("adopt %s in %s: already in the vault (use --force)", skill, agent.ID), "already in the vault")
 	}
 	return ops.Action{Op: ops.OpAdopt, Skill: skill, Agent: agent.ID, Path: filepath.Join(agent.Path, skill)}, nil
 }
@@ -705,27 +705,27 @@ type forceCase struct {
 var forceCases = []forceCase{
 	{
 		name: "install over an unmanaged folder", key: "i", state: ops.Unmanaged,
-		op: ops.OpInstall, reason: "install alpha in claude: unmanaged (use --force)",
+		op: ops.OpInstall, reason: "claude has an unmanaged copy",
 		effect: "Overwrites the existing folder, including anything in it.",
 	},
 	{
 		name: "install over a modified copy", key: "i", state: ops.Modified,
-		op: ops.OpInstall, reason: "install alpha in claude: modified (use --force)",
+		op: ops.OpInstall, reason: "claude has local edits (modified)",
 		effect: "Overwrites the existing folder, including anything in it.",
 	},
 	{
 		name: "uninstall of a modified copy", key: "u", state: ops.Modified,
-		op: ops.OpUninstall, reason: "uninstall alpha in claude: modified (use --force)",
+		op: ops.OpUninstall, reason: "claude has local edits (modified)",
 		effect: "Local edits are lost with the installed copy and its lock entry.",
 	},
 	{
 		name: "update of a modified copy", key: "U", state: ops.Modified,
-		op: ops.OpUpdate, reason: "skip alpha in claude: modified",
+		op: ops.OpUpdate, reason: "claude has local edits (modified)",
 		effect: "Overwrites local edits in the installed copy.",
 	},
 	{
 		name: "adopt over a skill already in the vault", key: "a", state: ops.Unmanaged, inVault: true,
-		op: ops.OpAdopt, reason: "adopt alpha in claude: already in the vault (use --force)",
+		op: ops.OpAdopt, reason: "already in the vault",
 		effect: "Replaces the vault copy of alpha with this folder.",
 	},
 }
@@ -752,10 +752,13 @@ func TestForceRefusalAsksForForce(t *testing.T) {
 					t.Fatalf("mode = %v, force = %t; want the force prompt", m.mode, m.pending.act.force)
 				}
 				view := m.View()
-				for _, want := range []string{"Force " + tt.op + " alpha in claude?", tt.reason, tt.effect} {
+				for _, want := range []string{"╭─ Force " + tt.op + " ", capitalize(tt.op) + " alpha in claude?", tt.reason, tt.effect} {
 					if !strings.Contains(view, want) {
 						t.Errorf("force prompt lacks %q:\n%s", want, view)
 					}
+				}
+				if strings.Contains(view, "--force") || strings.Contains(view, tt.op+":") {
+					t.Errorf("force prompt shows CLI text:\n%s", view)
 				}
 			})
 			t.Run("any key but y cancels without a further call", func(t *testing.T) {
@@ -785,6 +788,69 @@ func TestForceRefusalAsksForForce(t *testing.T) {
 	}
 }
 
+// TestForceConfirmShowsReasonsForEveryRefusal drives the refusals that --force
+// overrides from outside the cell matrix. Each prompt shows its reasons and none of
+// the CLI text.
+func TestForceConfirmShowsReasonsForEveryRefusal(t *testing.T) {
+	tests := []struct {
+		name    string
+		start   func(t *testing.T) Model
+		op      string // the CLI prefix the prompt must not show
+		reasons []string
+	}{
+		{
+			name: "remove of an installed skill", op: "remove",
+			start: func(t *testing.T) Model {
+				b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
+				return press(t, loaded(t, b, []config.Agent{claude}), "enter", "D")
+			},
+			reasons: []string{"installed in claude"},
+		},
+		{
+			name: "create over a skill in the vault", op: "create",
+			start: func(t *testing.T) Model {
+				b := &fakeBackend{inVault: map[string]bool{"alpha": true}}
+				m := press(t, loaded(t, b, dialogAgents), "n")
+				return press(t, typeText(t, m, strings.ReplaceAll(freshSkill, "fresh-skill", "alpha")), "ctrl+s")
+			},
+			reasons: []string{"already in the vault"},
+		},
+		{
+			name: "import of a folder whose name is in the vault", op: "import",
+			start: func(t *testing.T) Model {
+				b := &fakeBackend{inVault: map[string]bool{"alpha": true}}
+				return press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "I"), "/src/alpha"), "enter")
+			},
+			reasons: []string{"already in the vault"},
+		},
+		{
+			name: "import of a tarball with a name in the vault", op: "import",
+			start: func(t *testing.T) Model {
+				b := &fakeBackend{inVault: map[string]bool{"alpha": true}}
+				return press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "I"), "/src/alpha.tar.gz"), "enter")
+			},
+			reasons: []string{"already in the vault: alpha"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.start(t)
+			if m.mode != modeConfirm || !m.pending.act.force {
+				t.Fatalf("mode = %v, force = %t; want the force prompt", m.mode, m.pending.act.force)
+			}
+			view := m.View()
+			for _, want := range tt.reasons {
+				if !strings.Contains(view, want) {
+					t.Errorf("force prompt lacks reason %q:\n%s", want, view)
+				}
+			}
+			if strings.Contains(view, "--force") || strings.Contains(view, tt.op+": ") {
+				t.Errorf("force prompt shows CLI text:\n%s", view)
+			}
+		})
+	}
+}
+
 func TestPlainConfirmNeverForces(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
 	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "u")
@@ -792,7 +858,7 @@ func TestPlainConfirmNeverForces(t *testing.T) {
 		t.Fatalf("mode = %v, force = %t; want the plain confirm", m.mode, m.pending.act.force)
 	}
 	view := m.View()
-	for _, want := range []string{"uninstall alpha in claude?", "uninstall " + filepath.Join(claude.Path, "alpha"), "Removes the installed copy and its lock entry. The vault copy stays.", "y yes · n no"} {
+	for _, want := range []string{"Uninstall alpha in claude?", "uninstall " + filepath.Join(claude.Path, "alpha"), "Removes the installed copy and its lock entry. The vault copy stays.", "y yes · n no"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("plain confirm lacks %q:\n%s", want, view)
 		}

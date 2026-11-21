@@ -3,15 +3,21 @@ package tui
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"sapato/internal/ops"
 	"sapato/internal/tui/theme"
 	"sapato/internal/vault"
 )
 
-// dialogMinW is the least width of a dialog block (spec §9.4).
-const dialogMinW = 60
+const (
+	// dialogMinW is the least width of a dialog block (spec §9.4).
+	dialogMinW = 60
+	// confirmMinW is the least width of a confirm box (spec §9.4).
+	confirmMinW = 40
+)
 
 // dialogBlock centers a dialog as one block, as wide as its widest line, at least
 // dialogMinW and at most the terminal. build renders the lines for a width, so a
@@ -20,6 +26,83 @@ const dialogMinW = 60
 func (m Model) dialogBlock(build func(w int) []string) []string {
 	blockW := min(m.layoutWidth(), max(dialogMinW, maxWidth(build(m.layoutWidth()))))
 	return m.centered(build(blockW), blockW)
+}
+
+// confirmModal is a confirm over the screen it came from (spec §9.4): that screen,
+// stripped of its styles and drawn in Overlay, with the confirm box centered over
+// it. Before the terminal reports its size there is no screen to draw over, so the
+// box alone is returned.
+func (m Model) confirmModal() []string {
+	box, boxW := m.confirmBox()
+	if m.height == 0 {
+		return m.centered(box, boxW)
+	}
+	under := m
+	under.mode = m.pending.act.back
+	lines := fitRows(under.body(), m.bodyHeight())
+	top := max(0, (len(lines)-len(box))/2)
+	x := max(0, (m.width-boxW)/2)
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		plain := ansi.Strip(l)
+		if i < top || i >= top+len(box) {
+			out[i] = m.styles.dim.Render(plain)
+			continue
+		}
+		out[i] = m.styles.dim.Render(pad(ansi.Truncate(plain, x, ""), x)) +
+			box[i-top] +
+			m.styles.dim.Render(ansi.TruncateLeft(plain, x+boxW, ""))
+	}
+	return out
+}
+
+// confirmBox draws the confirm box: a rounded border around the confirm's body and
+// its answer hints. The border carries the action as its title, in Red for a force
+// prompt and Accent otherwise. The box is as wide as its widest line, at least
+// confirmMinW and at most the terminal less four columns. It returns the rows and
+// their width.
+func (m Model) confirmBox() ([]string, int) {
+	maxW := m.layoutWidth() - 4
+	boxW := min(maxW, max(confirmMinW, maxWidth(m.confirmLines(maxW))+4))
+	inner := boxW - 4
+	st := m.confirmBorder()
+	title := truncate(" "+confirmTitle(m.pending.act)+" ", boxW-5)
+	rows := []string{st.Render("╭─") + st.Bold(true).Render(title) +
+		st.Render(strings.Repeat("─", boxW-3-lipgloss.Width(title))+"╮")}
+	for _, l := range m.confirmLines(inner) {
+		rows = append(rows, st.Render("│")+" "+pad(l, inner)+" "+st.Render("│"))
+	}
+	return append(rows, st.Render("╰"+strings.Repeat("─", boxW-2)+"╯")), boxW
+}
+
+// confirmBorder is the style of a confirm box's border: Red for a force prompt,
+// Accent for a plain one.
+func (m Model) confirmBorder() lipgloss.Style {
+	if m.pending.act.force {
+		return m.styles.fail
+	}
+	return m.styles.focus
+}
+
+// confirmLines are the rows inside the confirm box at w columns: the confirm's body,
+// then the answer hints.
+func (m Model) confirmLines(w int) []string {
+	return append(m.confirmBody(w), "", m.hintText([]key.Binding{m.keys.yes, m.keys.no}))
+}
+
+// confirmTitle is the action a confirm box names in its border.
+func confirmTitle(a action) string {
+	switch {
+	case a.op == opDiscard:
+		return "Discard"
+	case a.op == opConfigInit:
+		return "Create config"
+	case a.op == opVaultInit:
+		return "Create vault"
+	case a.force:
+		return "Force " + a.op
+	}
+	return capitalize(a.op)
 }
 
 // inputBlock centers a dialog whose input sets its width: inputWidth, which

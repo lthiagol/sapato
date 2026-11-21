@@ -74,7 +74,7 @@ func importFolder(v *vault.Vault, src string, opts ImportOptions) (Action, error
 		return Action{}, fmt.Errorf("import %s: %w", src, err)
 	}
 	if present && !opts.Force {
-		return Action{}, fmt.Errorf("import %s: %w", src, forceRefusal(name+" is already in the vault (use --force)"))
+		return Action{}, fmt.Errorf("import %s: %w", src, forceRefusal(name+" is already in the vault (use --force)", "already in the vault"))
 	}
 
 	action := Action{Op: OpImport, Skill: name, Path: dest}

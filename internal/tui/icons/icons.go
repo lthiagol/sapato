@@ -11,12 +11,16 @@ type namedSet struct {
 }
 
 // Set is one glyph set. Status has a glyph for each of the eight states. Info
-// marks an info notification and Exec an executable file. Sets carry no separators.
+// marks an info notification and Exec an executable file. Branch, Last and Pipe draw
+// the file tree: a branch, the last branch of a folder, and the line that runs down
+// past a branch. Sets carry no separators.
 type Set struct {
 	Status       map[ops.State]string
 	Marker, Mark string
 	Exec, Info   string
 	Rule         string
+	Branch, Last string
+	Pipe         string
 }
 
 // sets lists the glyph sets in UI order. Names match config.IconNames.
@@ -37,6 +41,9 @@ var sets = []namedSet{
 		Exec:   "\uf013",
 		Info:   "\uf05a",
 		Rule:   "─",
+		Branch: "├── ",
+		Last:   "└── ",
+		Pipe:   "│   ",
 	}},
 	{name: "unicode", set: Set{
 		Status: map[ops.State]string{
@@ -54,6 +61,9 @@ var sets = []namedSet{
 		Exec:   "⚙",
 		Info:   "ℹ",
 		Rule:   "─",
+		Branch: "├── ",
+		Last:   "└── ",
+		Pipe:   "│   ",
 	}},
 	{name: "ascii", set: Set{
 		Status: map[ops.State]string{
@@ -71,6 +81,9 @@ var sets = []namedSet{
 		Exec:   "x",
 		Info:   "i",
 		Rule:   "-",
+		Branch: "|-- ",
+		Last:   "`-- ",
+		Pipe:   "|   ",
 	}},
 }
 
