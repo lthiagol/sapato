@@ -34,7 +34,9 @@ type Skill struct {
 	Problems    []string
 }
 
-func loadSkill(dir, name string) (Skill, error) {
+// Load reads and validates the skill folder dir as a skill called name. The
+// name is checked against the frontmatter, not against the folder name of dir.
+func Load(dir, name string) (Skill, error) {
 	hash, err := hashdir.Hash(dir)
 	if err != nil {
 		return Skill{}, err
@@ -59,6 +61,22 @@ func loadSkill(dir, name string) (Skill, error) {
 	}
 	s.Valid = len(s.Problems) == 0
 	return s, nil
+}
+
+// FrontmatterName returns the name in the frontmatter of the SKILL.md in dir.
+// It returns "" when the name is missing or not a string.
+func FrontmatterName(dir string) (string, error) {
+	path := filepath.Join(dir, skillFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	fm, err := parseFrontmatter(data)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	name, _ := fm["name"].(string)
+	return name, nil
 }
 
 // validate applies the spec §3 rules to the contents of SKILL.md.

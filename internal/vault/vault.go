@@ -87,6 +87,12 @@ func Init(path string) error {
 	return nil
 }
 
+// SkillDir returns the folder of the skill called name. It does not check that
+// the folder exists.
+func (v *Vault) SkillDir(name string) string {
+	return filepath.Join(v.Path, skillsDir, name)
+}
+
 // Skills returns every skill directory in the vault, sorted by name.
 // Invalid skills are included with Valid false and their Problems set.
 func (v *Vault) Skills() ([]Skill, error) {
@@ -100,7 +106,7 @@ func (v *Vault) Skills() ([]Skill, error) {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		s, err := loadSkill(filepath.Join(root, e.Name()), e.Name())
+		s, err := Load(filepath.Join(root, e.Name()), e.Name())
 		if err != nil {
 			return nil, err
 		}

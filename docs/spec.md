@@ -137,6 +137,8 @@ Glob vs literal: a skill named literally that hits a hard refusal (invalid on in
 | `sapato doctor` | report: invalid vault skills, corrupt locks, duplicate exposure via read overlaps (same skill visible to one agent from two dirs), missing/orphaned/modified entries |
 | `sapato tui` (also bare `sapato`) | interactive UI |
 
+Notes: `remove` counts an agent as "installed" if status is synced/outdated/modified in any configured agent (enabled or not); `missing` does not count. `adopt --force` overwrites a same-named vault skill. `import` takes the skill name from frontmatter (`--name` must match it).
+
 Exit codes: 0 ok, 1 error, 2 usage error. Errors go to stderr.
 
 ## 8. Install mechanics

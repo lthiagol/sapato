@@ -1,0 +1,122 @@
+package ops
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"sapato/internal/vault"
+)
+
+// ImportOptions are the flags of Import.
+type ImportOptions struct {
+	Options
+	// Name is the skill name. When set it must match the frontmatter name.
+	Name string
+	// Subdir is the folder of the source that holds the skill.
+	Subdir string
+}
+
+// Import copies the skill at src into the vault (spec §7). src is a local folder,
+// or a git URL that is shallow-cloned to a temp dir first. The skill takes the
+// name in its frontmatter. It must be valid, and a name already in the vault is
+// refused unless opts.Force is set. When a check fails nothing is changed.
+func Import(v *vault.Vault, src string, opts ImportOptions) (Action, error) {
+	root, cleanup, err := fetchSource(src)
+	if err != nil {
+		return Action{}, fmt.Errorf("import %s: %w", src, err)
+	}
+	defer cleanup()
+
+	dir, err := skillDir(root, opts.Subdir)
+	if err != nil {
+		return Action{}, fmt.Errorf("import %s: %w", src, err)
+	}
+	name, err := vault.FrontmatterName(dir)
+	if err != nil {
+		return Action{}, fmt.Errorf("import %s: %w", src, err)
+	}
+	if opts.Name != "" && opts.Name != name {
+		return Action{}, fmt.Errorf("import %s: name %q does not match frontmatter name %q", src, opts.Name, name)
+	}
+	s, err := vault.Load(dir, name)
+	if err != nil {
+		return Action{}, fmt.Errorf("import %s: %w", src, err)
+	}
+	if !s.Valid {
+		return Action{}, fmt.Errorf("import %s: invalid skill: %s", src, strings.Join(s.Problems, "; "))
+	}
+
+	dest := v.SkillDir(name)
+	present, err := pathExists(dest)
+	if err != nil {
+		return Action{}, fmt.Errorf("import %s: %w", src, err)
+	}
+	if present && !opts.Force {
+		return Action{}, fmt.Errorf("import %s: %s is already in the vault (use --force)", src, name)
+	}
+
+	action := Action{Op: OpImport, Skill: name, Path: dest}
+	if opts.DryRun {
+		return action, nil
+	}
+	if err := placeSkill(dir, dest); err != nil {
+		return Action{}, fmt.Errorf("import %s: %w", src, err)
+	}
+	return action, nil
+}
+
+// isGitURL reports whether src names a git repository rather than a local folder.
+func isGitURL(src string) bool {
+	return strings.HasPrefix(src, "https://") || strings.HasPrefix(src, "git@") || strings.HasSuffix(src, ".git")
+}
+
+// fetchSource returns the folder to read the skill from. For a git URL that is
+// a shallow clone in a new temp dir, and cleanup removes that dir. The clone
+// never prompts for credentials.
+func fetchSource(src string) (root string, cleanup func(), err error) {
+	if !isGitURL(src) {
+		return src, func() {}, nil
+	}
+	tmp, err := os.MkdirTemp("", "sapato-import-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup = func() { _ = os.RemoveAll(tmp) }
+	root = filepath.Join(tmp, "repo")
+	cmd := exec.Command("git", "clone", "--depth", "1", "--", src, root)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("git clone: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return root, cleanup, nil
+}
+
+// skillDir returns the folder of the skill inside root. subdir must stay inside root.
+func skillDir(root, subdir string) (string, error) {
+	if subdir == "" {
+		return root, nil
+	}
+	if !filepath.IsLocal(subdir) {
+		return "", fmt.Errorf("subdir %q must be a path inside the source", subdir)
+	}
+	return filepath.Join(root, subdir), nil
+}
+
+// pathExists reports whether anything, even a broken symlink, is at path.
+func pathExists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	default:
+		return false, err
+	}
+}

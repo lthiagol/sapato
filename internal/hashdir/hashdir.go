@@ -65,6 +65,12 @@ func Files(dir string) ([]File, error) {
 	return files, nil
 }
 
+// Exec reports whether a file with mode counts as executable in the hash. Only
+// the exec bits matter, so diff and status agree on mode changes.
+func Exec(mode fs.FileMode) bool {
+	return mode&0o111 != 0
+}
+
 // Hash returns "sha256:<hex>" over the files that Files lists in dir.
 func Hash(dir string) (string, error) {
 	files, err := Files(dir)
@@ -79,7 +85,7 @@ func Hash(dir string) (string, error) {
 			return "", fmt.Errorf("hash %s: %w", dir, err)
 		}
 		mode := "-"
-		if f.Mode&0o111 != 0 {
+		if Exec(f.Mode) {
 			mode = "x"
 		}
 		fmt.Fprintf(h, "%s\n%s\n%d\n", f.Rel, mode, len(data))

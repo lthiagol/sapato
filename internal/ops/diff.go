@@ -31,7 +31,7 @@ type FileChange struct {
 	Rel    string     // slash-separated path in the skill folder
 	Kind   ChangeKind // how the file differs
 	Binary bool       // the content differs and is binary, so Diff is empty
-	Mode   bool       // the permission bits differ
+	Mode   bool       // the exec bit differs, as in the content hash
 	Diff   string     // unified diff of a text file, from the copy to the vault
 }
 
@@ -126,7 +126,7 @@ func compareFile(rel string, inst, want hashdir.File) (*FileChange, error) {
 			return nil, err
 		}
 		c.Kind = ChangeChanged
-		c.Mode = inst.Mode != want.Mode
+		c.Mode = hashdir.Exec(inst.Mode) != hashdir.Exec(want.Mode)
 		if bytes.Equal(oldData, newData) && !c.Mode {
 			return nil, nil
 		}

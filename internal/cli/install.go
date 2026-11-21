@@ -140,6 +140,7 @@ func newUninstallCmd(opts *globalOpts) *cobra.Command {
 }
 
 // printActions prints one line per action. A dry run says "would" before the verb.
+// Actions that name no agent, such as import, print without the agent.
 func printActions(w io.Writer, actions []ops.Action, dryRun bool) error {
 	if len(actions) == 0 {
 		_, err := fmt.Fprintln(w, "nothing to do")
@@ -156,7 +157,11 @@ func printActions(w io.Writer, actions []ops.Action, dryRun bool) error {
 		if dryRun {
 			verb = "would " + verb
 		}
-		if _, err := fmt.Fprintf(w, "%s %s in %s: %s\n", verb, a.Skill, a.Agent, a.Path); err != nil {
+		where := ""
+		if a.Agent != "" {
+			where = " in " + a.Agent
+		}
+		if _, err := fmt.Fprintf(w, "%s %s%s: %s\n", verb, a.Skill, where, a.Path); err != nil {
 			return err
 		}
 	}

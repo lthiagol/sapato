@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -190,6 +191,57 @@ func TestDiff(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Diff() =\n%+v\nwant\n%+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDiffComparesExecBitOnly checks that diff counts a mode change only when
+// the exec bit changes, as the content hash does, so diff and status agree.
+func TestDiffComparesExecBitOnly(t *testing.T) {
+	tests := []struct {
+		name       string
+		installed  fs.FileMode
+		vault      fs.FileMode
+		wantMode   bool
+		wantSynced bool // status after the change, when the hash does not move
+	}{
+		{name: "group write alone is no change", installed: 0o644, vault: 0o664, wantSynced: true},
+		{name: "owner-only file is no change", installed: 0o644, vault: 0o600, wantSynced: true},
+		{name: "exec bit on the vault side is a change", installed: 0o644, vault: 0o755, wantMode: true},
+		{name: "exec bit on the installed side is a change", installed: 0o744, vault: 0o644, wantMode: true},
+		{name: "exec bit on both sides is no change", installed: 0o755, vault: 0o744},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := fixtureVault(t)
+			agent := fixtureAgent(t, "claude")
+			skill := "mocked-skill-00005"
+			if _, err := Install(v, []config.Agent{agent}, []string{skill}, Options{}); err != nil {
+				t.Fatalf("Install() error = %v", err)
+			}
+			file := filepath.Join("assets", "template.txt")
+			if err := os.Chmod(filepath.Join(agent.Path, skill, file), tt.installed); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(filepath.Join(vaultSkill(t, v, skill).Dir, file), tt.vault); err != nil {
+				t.Fatal(err)
+			}
+
+			changes, err := Diff(v, agent, skill)
+			if err != nil {
+				t.Fatalf("Diff() error = %v", err)
+			}
+			switch {
+			case tt.wantMode && (len(changes) != 1 || !changes[0].Mode):
+				t.Errorf("Diff() = %+v, want one mode change", changes)
+			case !tt.wantMode && len(changes) != 0:
+				t.Errorf("Diff() = %+v, want no change", changes)
+			}
+			if tt.wantSynced {
+				if got := stateOf(t, v, agent, skill); got != Synced {
+					t.Errorf("status = %s, want synced, as diff reports no change", got)
+				}
 			}
 		})
 	}

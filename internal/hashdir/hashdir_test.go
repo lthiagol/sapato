@@ -262,3 +262,24 @@ func TestFilesErrors(t *testing.T) {
 		t.Error("Files(missing) returned nil error")
 	}
 }
+
+func TestExec(t *testing.T) {
+	tests := []struct {
+		name string
+		mode fs.FileMode
+		want bool
+	}{
+		{name: "regular file", mode: 0o644, want: false},
+		{name: "group-writable file", mode: 0o664, want: false},
+		{name: "owner exec", mode: 0o744, want: true},
+		{name: "group exec", mode: 0o654, want: true},
+		{name: "other exec", mode: 0o645, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Exec(tt.mode); got != tt.want {
+				t.Errorf("Exec(%v) = %v, want %v", tt.mode, got, tt.want)
+			}
+		})
+	}
+}

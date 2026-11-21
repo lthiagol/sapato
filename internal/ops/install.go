@@ -23,6 +23,9 @@ const (
 	OpInstall   = "install"
 	OpUninstall = "uninstall"
 	OpUpdate    = "update"
+	OpImport    = "import"
+	OpAdopt     = "adopt"
+	OpRemove    = "remove"
 	OpSkip      = "skip"
 )
 
@@ -134,14 +137,27 @@ func installSkill(dir string, s vault.Skill, now time.Time) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := placeSkill(s.Dir, filepath.Join(dir, s.Name)); err != nil {
+		return err
+	}
+	return recordLock(dir, s, now)
+}
+
+// recordLock adds s to the lock of the agent directory dir, as installed at now.
+func recordLock(dir string, s vault.Skill, now time.Time) error {
 	lock, err := target.ReadLock(dir)
 	if err != nil {
 		return err
 	}
+	lock.Skills[s.Name] = target.LockEntry{Hash: s.Hash, Version: s.Version, InstalledAt: now}
+	return target.WriteLock(dir, lock)
+}
 
-	dest := filepath.Join(dir, s.Name)
-	tmp := filepath.Join(dir, "."+s.Name+".sapato-tmp")
-	if err := stageSkill(s.Dir, tmp); err != nil {
+// placeSkill copies the skill folder src to dest, replacing what dest holds.
+// The copy is staged in a hidden sibling folder and renamed into place.
+func placeSkill(src, dest string) error {
+	tmp := filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+".sapato-tmp")
+	if err := stageSkill(src, tmp); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(dest); err != nil {
@@ -152,9 +168,7 @@ func installSkill(dir string, s vault.Skill, now time.Time) error {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("rename into place: %w", err)
 	}
-
-	lock.Skills[s.Name] = target.LockEntry{Hash: s.Hash, Version: s.Version, InstalledAt: now}
-	return target.WriteLock(dir, lock)
+	return nil
 }
 
 // stageSkill copies the skill folder src into a new folder at tmp. On failure
