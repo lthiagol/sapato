@@ -47,7 +47,7 @@ func Adopt(v *vault.Vault, agent config.Agent, skill string, opts Options) (Acti
 		return Action{}, fmt.Errorf("adopt %s in %s: %w", skill, agent.ID, err)
 	}
 	if present && !opts.Force {
-		return Action{}, fmt.Errorf("adopt %s in %s: already in the vault (use --force)", skill, agent.ID)
+		return Action{}, fmt.Errorf("adopt %s in %s: %w", skill, agent.ID, forceRefusal("already in the vault (use --force)"))
 	}
 
 	action := Action{Op: OpAdopt, Skill: skill, Agent: agent.ID, Path: dir}

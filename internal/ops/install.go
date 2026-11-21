@@ -105,7 +105,7 @@ func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Option
 		actions = append(actions, Action{Op: OpInstall, Skill: r.Skill, Agent: r.Agent, Path: filepath.Join(dirs[r.Agent], r.Skill)})
 	}
 	if len(refused) > 0 {
-		return nil, fmt.Errorf("install: refusing to overwrite %s (use --force)", strings.Join(refused, "; "))
+		return nil, fmt.Errorf("install: %w", forceRefusal(fmt.Sprintf("refusing to overwrite %s (use --force)", strings.Join(refused, "; "))))
 	}
 	if opts.DryRun {
 		return actions, nil
@@ -207,9 +207,8 @@ func placeSkillThen(src, dest string, commit func() error) error {
 		}
 	}
 	if present {
-		if err := os.RemoveAll(backup); err != nil {
-			return fmt.Errorf("remove old copy: %w", err)
-		}
+		// The new copy is in place. A leftover backup is dot-prefixed, so scans ignore it.
+		_ = os.RemoveAll(backup)
 	}
 	return nil
 }

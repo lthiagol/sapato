@@ -53,6 +53,9 @@ func TestExitCodes(t *testing.T) {
 		{name: "extra args to init is usage error", args: []string{"--config", cfgPath, "init", "a", "b"}, wantCode: 2, wantErr: "accepts at most 1 arg"},
 		{name: "unknown agent in config is runtime error", args: []string{"--config", writeBadConfig(t), "config"}, wantCode: 1, wantErr: "unknown agent"},
 		{name: "list without vault is runtime error", args: []string{"--config", cfgPath, "list"}, wantCode: 1, wantErr: "open vault"},
+		{name: "tui with extra args is usage error", args: []string{"--config", cfgPath, "tui", "x"}, wantCode: 2, wantErr: "unknown command"},
+		{name: "tui without vault is runtime error", args: []string{"--config", cfgPath, "tui"}, wantCode: 1, wantErr: "open vault"},
+		{name: "bare sapato without vault is runtime error", args: []string{"--config", cfgPath}, wantCode: 1, wantErr: "open vault"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

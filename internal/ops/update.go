@@ -11,6 +11,10 @@ import (
 	"sapato/internal/vault"
 )
 
+// ReasonModified is the Reason of a skip made because a copy is modified and
+// Options.Force is not set.
+const ReasonModified = "modified"
+
 // Update re-installs the outdated skills matched by skills into each agent
 // (spec §7). With no skills it covers every skill. A modified copy is skipped
 // unless opts.Force is set. An outdated skill whose vault copy is invalid is
@@ -62,7 +66,7 @@ func Update(v *vault.Vault, agents []config.Agent, skills []string, opts Options
 			continue
 		}
 		if r.Status == Modified && !opts.Force {
-			actions = append(actions, Action{Op: OpSkip, Skill: r.Skill, Agent: r.Agent, Reason: "modified"})
+			actions = append(actions, Action{Op: OpSkip, Skill: r.Skill, Agent: r.Agent, Reason: ReasonModified})
 			continue
 		}
 		actions = append(actions, Action{Op: OpUpdate, Skill: r.Skill, Agent: r.Agent, Path: filepath.Join(dirs[r.Agent], r.Skill)})

@@ -62,7 +62,7 @@ func Uninstall(v *vault.Vault, agents []config.Agent, skills []string, opts Opti
 		return nil, fmt.Errorf("uninstall: refusing to remove %s", strings.Join(unmanaged, "; "))
 	}
 	if len(modified) > 0 {
-		return nil, fmt.Errorf("uninstall: refusing to remove %s (use --force)", strings.Join(modified, "; "))
+		return nil, fmt.Errorf("uninstall: %w", forceRefusal(fmt.Sprintf("refusing to remove %s (use --force)", strings.Join(modified, "; "))))
 	}
 	if opts.DryRun {
 		return actions, nil

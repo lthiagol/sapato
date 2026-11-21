@@ -49,10 +49,11 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "sapato",
 		Short:         "Manage a portable skill vault and install skills into coding agents",
+		Long:          "Run with no subcommand to open the interactive UI. The global --dry-run flag has no effect there.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          usageArgs(cobra.NoArgs),
-		RunE:          func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+		RunE:          func(cmd *cobra.Command, _ []string) error { return runTUI(cmd, &opts) },
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -61,7 +62,8 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.PersistentFlags().BoolVar(&opts.dryRun, "dry-run", false, "print the plan of mutating commands and change nothing")
 	root.AddCommand(newConfigCmd(&opts), newInitCmd(&opts), newListCmd(&opts), newStatusCmd(&opts),
 		newInstallCmd(&opts), newUninstallCmd(&opts), newUpdateCmd(&opts), newDiffCmd(&opts),
-		newImportCmd(&opts), newAdoptCmd(&opts), newRemoveCmd(&opts), newSyncCmd(&opts), newDoctorCmd(&opts))
+		newImportCmd(&opts), newAdoptCmd(&opts), newRemoveCmd(&opts), newSyncCmd(&opts), newDoctorCmd(&opts),
+		newTUICmd(&opts))
 	return root
 }
 

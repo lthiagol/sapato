@@ -457,3 +457,38 @@ func TestInstallCleansUpTempDirOnFailure(t *testing.T) {
 		t.Errorf("failed install left changes behind:\n%v", after)
 	}
 }
+
+func TestPlaceSkillThenIgnoresBackupCleanupFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove read-only folders")
+	}
+	root := t.TempDir()
+	src := filepath.Join(root, "new")
+	dest := filepath.Join(root, "skills", "demo")
+	backup := filepath.Join(root, "skills", ".demo.sapato-old")
+	for dir, body := range map[string]string{src: "new", dest: "old"} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Once the old copy is set aside, make its folder unremovable. Cleanups run
+	// last in first-registered order, so the TempDir cleanup runs after this one.
+	lockBackup := func() error {
+		t.Cleanup(func() { _ = os.Chmod(backup, 0o755) })
+		return os.Chmod(backup, 0o500)
+	}
+
+	if err := placeSkillThen(src, dest, lockBackup); err != nil {
+		t.Fatalf("placeSkillThen() error = %v, want nil: the new copy is in place", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dest, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "new" {
+		t.Errorf("dest holds %q, want the new copy", data)
+	}
+}
