@@ -108,7 +108,7 @@ func TestDialogKeysOpenTheirDialogs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := press(t, loaded(t, b, []config.Agent{claude}), tt.keys...)
 			if m.mode != tt.want {
-				t.Errorf("mode = %v, want %v; result %q", m.mode, tt.want, m.result)
+				t.Errorf("mode = %v, want %v; result %q", m.mode, tt.want, m.lastMsg())
 			}
 		})
 	}
@@ -127,8 +127,8 @@ func TestAdoptPickerAdoptsAndStaysOpen(t *testing.T) {
 	if !slices.Equal(b.calls, want) {
 		t.Errorf("calls = %q, want %q", b.calls, want)
 	}
-	if m.mode != modeAdopt || m.resultErr || m.result != "adopt beta in cursor" {
-		t.Errorf("mode %v, result %q (err %t); want the picker open with the result", m.mode, m.result, m.resultErr)
+	if m.mode != modeAdopt || m.lastErr() || m.lastMsg() != "adopt beta in cursor" {
+		t.Errorf("mode %v, result %q (err %t); want the picker open with the result", m.mode, m.lastMsg(), m.lastErr())
 	}
 	if m = press(t, m, "esc"); m.mode != modeNormal {
 		t.Errorf("mode after esc = %v, want the grid", m.mode)
@@ -153,12 +153,12 @@ func TestAdoptPickerForceFlow(t *testing.T) {
 		t.Fatalf("mode %v, force %t; want the force prompt", m.mode, m.pending.act.force)
 	}
 	m = press(t, m, "n")
-	if m.mode != modeAdopt || m.result != "cancelled" {
-		t.Errorf("after n: mode %v, result %q; want the picker and cancelled", m.mode, m.result)
+	if last := m.lastNote(); m.mode != modeAdopt || last.title != "cancelled" || last.message != "adopt alpha in claude" {
+		t.Errorf("after n: mode %v, note %q %q; want the picker and cancelled adopt", m.mode, last.title, last.message)
 	}
 	m = press(t, m, "enter", "y")
-	if m.mode != modeAdopt || m.resultErr || m.result != "adopt alpha in claude" {
-		t.Errorf("after y: mode %v, result %q (err %t)", m.mode, m.result, m.resultErr)
+	if m.mode != modeAdopt || m.lastErr() || m.lastMsg() != "adopt alpha in claude" {
+		t.Errorf("after y: mode %v, result %q (err %t)", m.mode, m.lastMsg(), m.lastErr())
 	}
 	if !slices.Contains(b.calls, "adopt alpha dry=false force=true") {
 		t.Errorf("calls = %q, want the forced adopt", b.calls)
@@ -187,8 +187,8 @@ func TestNewCancelsAndDiscards(t *testing.T) {
 		t.Errorf("after n: mode %v, text %q; want the editor with its text", m.mode, m.area.Value())
 	}
 	m = press(t, m, "esc", "y")
-	if m.mode != modeNormal || m.result != "new skill discarded" {
-		t.Errorf("after y: mode %v, result %q; want the grid", m.mode, m.result)
+	if m.mode != modeNormal || m.lastMsg() != "new skill discarded" {
+		t.Errorf("after y: mode %v, result %q; want the grid", m.mode, m.lastMsg())
 	}
 }
 
@@ -219,8 +219,8 @@ func TestNewSaveShowsErrorAndKeepsEditor(t *testing.T) {
 	m := press(t, loaded(t, b, dialogAgents), "n")
 	m = typeText(t, m, "not a skill")
 	m = press(t, m, "ctrl+s")
-	if m.mode != modeNew || !m.resultErr || !strings.Contains(m.result, "invalid skill") {
-		t.Errorf("mode %v, result %q (err %t); want the editor open with the error", m.mode, m.result, m.resultErr)
+	if m.mode != modeNew || !m.lastErr() || !strings.Contains(m.lastMsg(), "invalid skill") {
+		t.Errorf("mode %v, result %q (err %t); want the editor open with the error", m.mode, m.lastMsg(), m.lastErr())
 	}
 }
 
@@ -233,8 +233,8 @@ func TestNewSaveCreatesSkillOnFixtureCopy(t *testing.T) {
 		t.Fatalf("live check = %q, want valid", text)
 	}
 	m = press(t, m, "ctrl+s")
-	if m.mode != modeNormal || m.resultErr || m.result != "create fresh-skill" {
-		t.Fatalf("mode %v, result %q (err %t); want the grid and create fresh-skill", m.mode, m.result, m.resultErr)
+	if m.mode != modeNormal || m.lastErr() || m.lastMsg() != "create fresh-skill" {
+		t.Fatalf("mode %v, result %q (err %t); want the grid and create fresh-skill", m.mode, m.lastMsg(), m.lastErr())
 	}
 	if _, err := os.Stat(filepath.Join(vaultDir, "skills", "fresh-skill", "SKILL.md")); err != nil {
 		t.Errorf("vault lacks the new skill: %v", err)
@@ -258,8 +258,8 @@ func TestNewSaveOfExistingNameNeedsForce(t *testing.T) {
 		t.Errorf("after n: mode %v; want the editor with its text kept", m.mode)
 	}
 	m = press(t, m, "ctrl+s", "y")
-	if m.mode != modeNormal || m.resultErr || m.result != "create mocked-skill-00004" {
-		t.Errorf("after y: mode %v, result %q (err %t)", m.mode, m.result, m.resultErr)
+	if m.mode != modeNormal || m.lastErr() || m.lastMsg() != "create mocked-skill-00004" {
+		t.Errorf("after y: mode %v, result %q (err %t)", m.mode, m.lastMsg(), m.lastErr())
 	}
 	if _, err := os.Stat(filepath.Join(vaultDir, "skills", "mocked-skill-00004", "SKILL.md")); err != nil {
 		t.Errorf("vault lacks the replaced skill: %v", err)
@@ -269,24 +269,24 @@ func TestNewSaveOfExistingNameNeedsForce(t *testing.T) {
 func TestImportDialog(t *testing.T) {
 	b := &fakeBackend{}
 	m := press(t, loaded(t, b, dialogAgents), "I", "enter")
-	if m.mode != modeImport || !m.resultErr || m.result != "import needs a path" {
-		t.Fatalf("empty path: mode %v, result %q (err %t)", m.mode, m.result, m.resultErr)
+	if m.mode != modeImport || !m.lastErr() || m.lastMsg() != "import needs a path" {
+		t.Fatalf("empty path: mode %v, result %q (err %t)", m.mode, m.lastMsg(), m.lastErr())
 	}
 	m = press(t, typeText(t, m, "/src/alpha"), "enter")
 	want := []string{"import /src/alpha dry=true force=false", "import /src/alpha dry=false force=false", "status"}
 	if !slices.Equal(b.calls, want) {
 		t.Errorf("calls = %q, want %q", b.calls, want)
 	}
-	if m.mode != modeNormal || m.resultErr || m.result != "import alpha" {
-		t.Errorf("mode %v, result %q (err %t); want the grid and import alpha", m.mode, m.result, m.resultErr)
+	if m.mode != modeNormal || m.lastErr() || m.lastMsg() != "import alpha" {
+		t.Errorf("mode %v, result %q (err %t); want the grid and import alpha", m.mode, m.lastMsg(), m.lastErr())
 	}
 }
 
 func TestImportDialogShowsErrorAndForceFlow(t *testing.T) {
 	b := &fakeBackend{opErr: map[string]error{ops.OpImport: errors.New("boom")}}
 	m := press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "I"), "/src/alpha"), "enter")
-	if m.mode != modeImport || !m.resultErr || m.result != "boom" {
-		t.Errorf("error: mode %v, result %q (err %t); want the prompt open with boom", m.mode, m.result, m.resultErr)
+	if m.mode != modeImport || !m.lastErr() || m.lastMsg() != "boom" {
+		t.Errorf("error: mode %v, result %q (err %t); want the prompt open with boom", m.mode, m.lastMsg(), m.lastErr())
 	}
 
 	b = &fakeBackend{inVault: map[string]bool{"alpha": true}}
@@ -294,12 +294,13 @@ func TestImportDialogShowsErrorAndForceFlow(t *testing.T) {
 	if m.mode != modeConfirm || !m.pending.act.force {
 		t.Fatalf("mode %v, force %t; want the force prompt", m.mode, m.pending.act.force)
 	}
-	if m = press(t, m, "n"); m.mode != modeImport || m.result != "cancelled" {
-		t.Errorf("after n: mode %v, result %q", m.mode, m.result)
+	m = press(t, m, "n")
+	if last := m.lastNote(); m.mode != modeImport || last.title != "cancelled" || last.message != "import /src/alpha" {
+		t.Errorf("after n: mode %v, note %q %q", m.mode, last.title, last.message)
 	}
 	m = press(t, m, "enter", "y")
-	if m.mode != modeNormal || m.result != "import alpha" {
-		t.Errorf("after y: mode %v, result %q", m.mode, m.result)
+	if m.mode != modeNormal || m.lastMsg() != "import alpha" {
+		t.Errorf("after y: mode %v, result %q", m.mode, m.lastMsg())
 	}
 }
 
@@ -317,8 +318,8 @@ func TestExportAndImportRoundTripOnFixture(t *testing.T) {
 	}
 	m.path.SetValue(archive)
 	m = press(t, m, "enter")
-	if m.mode != modeNormal || m.resultErr || m.result != "wrote "+archive {
-		t.Fatalf("export: mode %v, result %q (err %t)", m.mode, m.result, m.resultErr)
+	if m.mode != modeNormal || m.lastErr() || m.lastMsg() != "wrote "+archive {
+		t.Fatalf("export: mode %v, result %q (err %t)", m.mode, m.lastMsg(), m.lastErr())
 	}
 	if _, err := os.Stat(archive); err != nil {
 		t.Fatalf("export wrote no file: %v", err)
@@ -327,8 +328,8 @@ func TestExportAndImportRoundTripOnFixture(t *testing.T) {
 	m = press(t, m, "x")
 	m.path.SetValue(archive)
 	m = press(t, m, "enter")
-	if m.mode != modeExport || !m.resultErr {
-		t.Errorf("export over a file: mode %v, result %q (err %t); want the prompt open with an error", m.mode, m.result, m.resultErr)
+	if m.mode != modeExport || !m.lastErr() {
+		t.Errorf("export over a file: mode %v, result %q (err %t); want the prompt open with an error", m.mode, m.lastMsg(), m.lastErr())
 	}
 
 	m = press(t, m, "esc", "D", "y")
@@ -342,8 +343,8 @@ func TestExportAndImportRoundTripOnFixture(t *testing.T) {
 	m = press(t, m, "I")
 	m.path.SetValue(archive)
 	m = press(t, m, "enter")
-	if m.mode != modeNormal || m.resultErr || m.result != "import "+skill {
-		t.Fatalf("import: mode %v, result %q (err %t)", m.mode, m.result, m.resultErr)
+	if m.mode != modeNormal || m.lastErr() || m.lastMsg() != "import "+skill {
+		t.Fatalf("import: mode %v, result %q (err %t)", m.mode, m.lastMsg(), m.lastErr())
 	}
 	if _, err := os.Stat(filepath.Join(vaultDir, "skills", skill, "SKILL.md")); err != nil {
 		t.Errorf("vault lacks the imported skill: %v", err)
@@ -367,12 +368,12 @@ func TestRemoveForceFlowOnSkillScreen(t *testing.T) {
 		t.Errorf("force prompt lacks the question or its effect:\n%s", view)
 	}
 	m = press(t, m, "n")
-	if m.mode != modeNormal || m.screen != screenSkill || m.result != "cancelled" {
-		t.Errorf("after n: mode %v, screen %v, result %q", m.mode, m.screen, m.result)
+	if last := m.lastNote(); m.mode != modeNormal || m.screen != screenSkill || last.title != "cancelled" || last.message != "remove alpha" {
+		t.Errorf("after n: mode %v, screen %v, note %q %q", m.mode, m.screen, last.title, last.message)
 	}
 	m = press(t, m, "D", "y")
-	if !slices.Contains(b.calls, "remove alpha dry=false force=true") || m.result != "remove alpha" {
-		t.Errorf("calls %q, result %q; want the forced remove", b.calls, m.result)
+	if !slices.Contains(b.calls, "remove alpha dry=false force=true") || m.lastMsg() != "remove alpha" {
+		t.Errorf("calls %q, result %q; want the forced remove", b.calls, m.lastMsg())
 	}
 }
 
@@ -386,8 +387,8 @@ func TestRemovePlainConfirm(t *testing.T) {
 		t.Errorf("plain confirm lacks its question or names a force:\n%s", view)
 	}
 	m = press(t, m, "y")
-	if m.result != "remove alpha" || m.resultErr {
-		t.Errorf("result %q (err %t), want remove alpha", m.result, m.resultErr)
+	if m.lastMsg() != "remove alpha" || m.lastErr() {
+		t.Errorf("result %q (err %t), want remove alpha", m.lastMsg(), m.lastErr())
 	}
 }
 
@@ -396,7 +397,7 @@ func TestThemePreviewAndRestore(t *testing.T) {
 	all := theme.All()
 	next := all[slices.IndexFunc(all, func(x theme.Theme) bool { return x.Name == th.Name })+1]
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
-	m := New(b, []config.Agent{claude}, th, set, false)
+	m := testModel(b, []config.Agent{claude}, th, set, false)
 	m, _ = settle(t, m, m.Init())
 
 	m = press(t, m, "t", "down")
@@ -416,8 +417,8 @@ func TestThemePreviewAndRestore(t *testing.T) {
 	}
 
 	m = press(t, m, "t", "down", "enter")
-	if m.mode != modeNormal || m.th.Name != next.Name || m.result != "theme: "+next.Name {
-		t.Errorf("after enter: mode %v, theme %q, result %q; want %q kept", m.mode, m.th.Name, m.result, next.Name)
+	if last := m.lastNote(); m.mode != modeNormal || m.th.Name != next.Name || last.kind != noteInfo || last.title != "theme" || last.message != next.Name {
+		t.Errorf("after enter: mode %v, theme %q, note %+v; want %q kept as info", m.mode, m.th.Name, last, next.Name)
 	}
 }
 
@@ -451,7 +452,7 @@ func TestDialogsFitTheWidth(t *testing.T) {
 			m := sized(t, loaded(t, &fakeBackend{rows: rows}, []config.Agent{claude}), 80, 24)
 			m = press(t, m, tt.keys...)
 			if m.mode != tt.want {
-				t.Fatalf("mode = %v, want %v; result %q", m.mode, tt.want, m.result)
+				t.Fatalf("mode = %v, want %v; result %q", m.mode, tt.want, m.lastMsg())
 			}
 			if tt.setup != nil {
 				m = tt.setup(m)
@@ -503,7 +504,7 @@ func TestDialogBlocksAreCentered(t *testing.T) {
 				}
 				m := press(t, sized(t, loaded(t, &fakeBackend{rows: rows}, dialogAgents), size[0], size[1]), tt.keys...)
 				if m.mode != tt.want {
-					t.Fatalf("mode = %v, want %v; result %q", m.mode, tt.want, m.result)
+					t.Fatalf("mode = %v, want %v; result %q", m.mode, tt.want, m.lastMsg())
 				}
 				if tt.setup != nil {
 					m = tt.setup(m)
@@ -544,10 +545,10 @@ func TestPathDialogsEscLeavesNoTrace(t *testing.T) {
 				t.Fatalf("mode = %v, want %v", m.mode, tt.want)
 			}
 			m = typeText(t, m, "/src/alpha")
-			result, calls := m.result, len(b.calls)
+			result, calls := m.lastMsg(), len(b.calls)
 			m = press(t, m, "esc")
-			if m.mode != modeNormal || m.resultErr || m.result != result {
-				t.Errorf("after esc: mode %v, result %q (err %t); want the grid with %q", m.mode, m.result, m.resultErr, result)
+			if m.mode != modeNormal || m.lastErr() || m.lastMsg() != result {
+				t.Errorf("after esc: mode %v, result %q (err %t); want the grid with %q", m.mode, m.lastMsg(), m.lastErr(), result)
 			}
 			if len(b.calls) != calls {
 				t.Errorf("esc made calls %q", b.calls[calls:])

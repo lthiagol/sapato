@@ -25,7 +25,7 @@ func fixtureModel(t *testing.T) (Model, string, string) {
 		t.Fatal(err)
 	}
 	th, set := testLook(t)
-	m := New(opsBackend{v: v}, []config.Agent{{ID: "claude", Path: claudeDir, Enabled: true}}, th, set, true)
+	m := testModel(opsBackend{v: v}, []config.Agent{{ID: "claude", Path: claudeDir, Enabled: true}}, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	return m, vaultDir, claudeDir
 }
@@ -55,7 +55,7 @@ func TestFixtureAdoptCopiesIntoVault(t *testing.T) {
 		t.Errorf("vault lacks the adopted skill: %v", err)
 	}
 	if got := m.cells[cell{"hand-made-skill", "claude"}]; got != ops.Synced {
-		t.Errorf("after adopt: state = %q, want synced; result %q", got, m.result)
+		t.Errorf("after adopt: state = %q, want synced; result %q", got, m.lastMsg())
 	}
 }
 
@@ -66,7 +66,7 @@ func TestFixtureInstallCopiesNotInstalledSkill(t *testing.T) {
 		t.Errorf("install left no SKILL.md: %v", err)
 	}
 	if got := m.cells[cell{"mocked-skill-00004", "claude"}]; got != ops.Synced {
-		t.Errorf("after install: state = %q, want synced; result %q", got, m.result)
+		t.Errorf("after install: state = %q, want synced; result %q", got, m.lastMsg())
 	}
 }
 
@@ -89,7 +89,7 @@ func TestFixtureUpdateOfModifiedCopy(t *testing.T) {
 
 	accepted := press(t, onSkill(t, m, "mocked-skill-00003", "claude"), "U", "y")
 	if got := accepted.cells[cell{"mocked-skill-00003", "claude"}]; got != ops.Synced {
-		t.Errorf("after forced update: state = %q, want synced; result %q", got, accepted.result)
+		t.Errorf("after forced update: state = %q, want synced; result %q", got, accepted.lastMsg())
 	}
 }
 
@@ -140,16 +140,16 @@ func TestFixtureUninstallOfModifiedCopyNeedsForce(t *testing.T) {
 	if lock, err := target.ReadLock(claudeDir); err != nil || lock.Skills["mocked-skill-00003"].Hash != "" {
 		t.Errorf("lock entry still there after y (err %v)", err)
 	}
-	if accepted.result != "uninstall mocked-skill-00003 in claude" {
-		t.Errorf("result = %q", accepted.result)
+	if accepted.lastMsg() != "uninstall mocked-skill-00003 in claude" {
+		t.Errorf("result = %q", accepted.lastMsg())
 	}
 }
 
 func TestFixtureOpsRefusalIsShown(t *testing.T) {
 	m, _, _ := fixtureModel(t)
 	m = press(t, onSkill(t, m, "mocked-skill-00098", "claude"), "i")
-	if !m.resultErr || m.result == "" {
-		t.Errorf("result = %q (err %t), want the ops error", m.result, m.resultErr)
+	if !m.lastErr() || m.lastMsg() == "" {
+		t.Errorf("result = %q (err %t), want the ops error", m.lastMsg(), m.lastErr())
 	}
 }
 
@@ -157,7 +157,7 @@ func TestFixtureDiffOfModifiedCopy(t *testing.T) {
 	m, _, _ := fixtureModel(t)
 	m = press(t, onSkill(t, m, "mocked-skill-00003", "claude"), "d")
 	if m.mode != modeDiff {
-		t.Fatalf("mode = %v, result %q; want the diff pager", m.mode, m.result)
+		t.Fatalf("mode = %v, result %q; want the diff pager", m.mode, m.lastMsg())
 	}
 	if view := m.View(); !strings.Contains(view, "diff mocked-skill-00003 in claude") {
 		t.Errorf("diff view lacks its title:\n%s", view)

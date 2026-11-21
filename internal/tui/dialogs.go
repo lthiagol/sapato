@@ -174,7 +174,7 @@ func (m Model) openImport() (Model, tea.Cmd) {
 // opens on that name.
 func (m Model) openExport() (Model, tea.Cmd) {
 	if !m.inVault(m.open) {
-		m.setResult(m.open+" is not in the vault", true)
+		m.notify(noteError, "error", m.open+" is not in the vault")
 		return m, nil
 	}
 	return m, exportNameCmd(m.backend, m.open)
@@ -192,7 +192,7 @@ func exportNameCmd(b Backend, skill string) tea.Cmd {
 // cannot be exported.
 func (m Model) onExportName(msg exportNameMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
-		m.setResult(msg.err.Error(), true)
+		m.notify(noteError, "error", msg.err.Error())
 		return m, nil
 	}
 	m.mode = modeExport
@@ -223,7 +223,7 @@ func (m Model) pathKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 func (m Model) startImport() (Model, tea.Cmd) {
 	src := strings.TrimSpace(m.path.Value())
 	if src == "" {
-		m.setResult("import needs a path", true)
+		m.notify(noteError, "error", "import needs a path")
 		return m, nil
 	}
 	return m, planCmd(m.backend, action{op: ops.OpImport, src: src, back: modeImport})
@@ -234,7 +234,7 @@ func (m Model) startImport() (Model, tea.Cmd) {
 func (m Model) runExport() (Model, tea.Cmd) {
 	dest := strings.TrimSpace(m.path.Value())
 	if dest == "" {
-		m.setResult("export needs a path", true)
+		m.notify(noteError, "error", "export needs a path")
 		return m, nil
 	}
 	return m, applyCmd(m.backend, action{op: opExport, skill: m.open, path: dest})
@@ -243,7 +243,7 @@ func (m Model) runExport() (Model, tea.Cmd) {
 // startRemove plans the removal of the open skill from the vault.
 func (m Model) startRemove() (Model, tea.Cmd) {
 	if !m.inVault(m.open) {
-		m.setResult(m.open+" is not in the vault", true)
+		m.notify(noteError, "error", m.open+" is not in the vault")
 		return m, nil
 	}
 	return m, planCmd(m.backend, action{op: ops.OpRemove, skill: m.open})
@@ -274,7 +274,7 @@ func (m Model) themeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.setTheme(all[m.themeCur])
 	case key.Matches(msg, m.keys.enter):
 		m.mode = modeNormal
-		m.setResult("theme: "+m.th.Name, false)
+		m.notify(noteInfo, "theme", m.th.Name)
 	case key.Matches(msg, m.keys.esc):
 		m.setTheme(m.themePrev)
 		m.mode = modeNormal

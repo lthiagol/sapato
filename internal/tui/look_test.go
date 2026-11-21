@@ -66,7 +66,7 @@ func TestIconSetDrawsTheMatrix(t *testing.T) {
 				t.Fatalf("icon set %s is missing", name)
 			}
 			b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
-			m := New(b, []config.Agent{claude}, th, set, true)
+			m := testModel(b, []config.Agent{claude}, th, set, true)
 			m, _ = settle(t, m, m.Init())
 
 			var rowLine string

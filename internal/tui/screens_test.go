@@ -25,8 +25,8 @@ func TestEnterOpensSkillAndEscReturns(t *testing.T) {
 
 func TestEnterOnEmptyGridReportsIt(t *testing.T) {
 	m := press(t, loaded(t, &fakeBackend{}, []config.Agent{claude}), "enter")
-	if m.screen != screenMain || m.result != nothingSelected || !m.resultErr {
-		t.Errorf("screen %v, result %q (err %t); want main and %q as an error", m.screen, m.result, m.resultErr, nothingSelected)
+	if m.screen != screenMain || m.lastMsg() != nothingSelected || !m.lastErr() {
+		t.Errorf("screen %v, result %q (err %t); want main and %q as an error", m.screen, m.lastMsg(), m.lastErr(), nothingSelected)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestInstallAllTargetsEveryEnabledAgent(t *testing.T) {
 	if !slices.Equal(b.lastAgents, []string{"claude", "cursor"}) {
 		t.Errorf("A went to %q, want every enabled agent", b.lastAgents)
 	}
-	if m.result != "install alpha in claude; install alpha in cursor" {
-		t.Errorf("result = %q", m.result)
+	if m.lastMsg() != "install alpha in claude; install alpha in cursor" {
+		t.Errorf("result = %q", m.lastMsg())
 	}
 }
 
@@ -105,8 +105,8 @@ func TestSkillActionsNeedTheVaultExceptUninstall(t *testing.T) {
 	m := loaded(t, b, []config.Agent{claude})
 	for _, key := range []string{"i", "U", "d"} {
 		got := press(t, onSkill(t, m, "alpha", "claude"), key)
-		if !got.resultErr || got.result != "alpha is not in the vault" {
-			t.Errorf("%s: result = %q (err %t), want the vault refusal", key, got.result, got.resultErr)
+		if !got.lastErr() || got.lastMsg() != "alpha is not in the vault" {
+			t.Errorf("%s: result = %q (err %t), want the vault refusal", key, got.lastMsg(), got.lastErr())
 		}
 	}
 	if len(b.calls) != 0 {
@@ -120,8 +120,8 @@ func TestSkillActionsNeedTheVaultExceptUninstall(t *testing.T) {
 func TestAdoptNeedsAnUnmanagedCopy(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
 	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "a")
-	if m.result != "adopt needs an unmanaged copy" || !m.resultErr {
-		t.Errorf("result = %q (err %t)", m.result, m.resultErr)
+	if m.lastMsg() != "adopt needs an unmanaged copy" || !m.lastErr() {
+		t.Errorf("result = %q (err %t)", m.lastMsg(), m.lastErr())
 	}
 	if len(b.calls) != 0 {
 		t.Errorf("calls = %q, want none", b.calls)
@@ -160,8 +160,8 @@ func TestSkillGoneReturnsToTheGrid(t *testing.T) {
 func TestSkillKeysAreNotMainKeys(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
 	m := press(t, loaded(t, b, []config.Agent{claude}), "i", "u", "U", "d", "space", " ")
-	if len(b.calls) != 0 || m.mode != modeNormal || m.result != "" {
-		t.Errorf("main screen acted on skill keys: calls %q, mode %v, result %q", b.calls, m.mode, m.result)
+	if len(b.calls) != 0 || m.mode != modeNormal || m.lastMsg() != "" {
+		t.Errorf("main screen acted on skill keys: calls %q, mode %v, result %q", b.calls, m.mode, m.lastMsg())
 	}
 }
 
@@ -203,8 +203,8 @@ func TestBarShowsTheFilterInput(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
 	m := sized(t, loaded(t, b, []config.Agent{claude}), 80, 24)
 	m = press(t, m, "/", "a")
-	lines := strings.Split(m.View(), "\n")
-	if bar := lines[len(lines)-1]; !strings.Contains(bar, "FILTER") || !strings.Contains(bar, "/ a") || !strings.Contains(bar, "esc clear") {
-		t.Errorf("filter bar = %q, want the badge, the input and the hints", bar)
+	first, second := barRows(m.View())
+	if !strings.Contains(first, "FILTER") || !strings.Contains(sgr.ReplaceAllString(first, ""), m.counts()+" · / a") || !strings.Contains(second, "esc clear") {
+		t.Errorf("filter bar = %q / %q, want the badge, the counts, then the input, then the hints", first, second)
 	}
 }

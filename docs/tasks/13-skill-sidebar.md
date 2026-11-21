@@ -10,3 +10,7 @@ Spec: §9.3 (new layout), §9.5 (exec glyph), §4 (file walk).
 ## Done when
 - Tests: files tree for fixture skills 00001 (1 file), 00003 (nested references/guides), 00004 (two exec scripts with glyph), 00005 (binary size), 00006 (dot-paths/symlink absent); human size formatting table test; orphaned skill lists installed files with the `installed in <agent>` title; agent section shows `installed <date>` from the lock for a managed agent and nothing for not-installed; sidebar width ≥ 26 and focused border uses Accent; stacked layout below 70 cols; nothing exceeds width at 60×20, 80×24, 120×40, 200×60; pgup/pgdn scroll the details when the tree is taller than the body; existing skill-screen action/force tests still pass.
 - `gofmt -l .` empty, `go vet ./...`, `go test -count=1 ./...` pass.
+
+## Carry-over from 12
+- In DIFF, HELP, ADOPT and THEME modes, row 2 lists `L log` among the global keys (spec §9.1), since `L` works there.
+- Row 1 (counts / filter query) truncates with `…` instead of hard-clipping on narrow terminals.

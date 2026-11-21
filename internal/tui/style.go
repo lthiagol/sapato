@@ -43,8 +43,9 @@ type styles struct {
 	rule    lipgloss.Style
 	bar     lipgloss.Style
 	barDim  lipgloss.Style
-	barFail lipgloss.Style
-	seg     lipgloss.Style
+	barSub  lipgloss.Style
+	ok      lipgloss.Style
+	info    lipgloss.Style
 	row     lipgloss.Style
 }
 
@@ -75,8 +76,9 @@ func newStyles(th theme.Theme, noColor bool) styles {
 		rule:    paint(th.Overlay, ""),
 		bar:     paint(th.Text, th.Mantle),
 		barDim:  paint(th.Overlay, th.Mantle),
-		barFail: paint(th.Red, th.Mantle),
-		seg:     paint(th.Text, th.Surface),
+		barSub:  paint(th.Subtext, th.Mantle),
+		ok:      paint(th.Green, ""),
+		info:    paint(th.Accent, ""),
 	}
 	for _, st := range states {
 		s.glyph[st.state] = paint(th.StatusColor(st.state), "")
@@ -94,13 +96,4 @@ func (s styles) badge(name string) lipgloss.Style {
 		return s.bold.Reverse(true)
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(s.th.Base).Background(s.th.ModeColor(name))
-}
-
-// powerline paints a separator that points from the segment of color fg into
-// the bar.
-func (s styles) powerline(fg lipgloss.Color) lipgloss.Style {
-	if s.noColor {
-		return lipgloss.NewStyle()
-	}
-	return lipgloss.NewStyle().Foreground(fg).Background(s.th.Mantle)
 }

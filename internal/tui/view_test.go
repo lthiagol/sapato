@@ -130,22 +130,32 @@ func TestRuleIsFullWidth(t *testing.T) {
 	}
 }
 
+// allScreens are the key sequences from the grid that reach each screen and overlay.
+var allScreens = []struct {
+	name  string
+	steps []string
+}{
+	{name: "main grid"},
+	{name: "filter", steps: []string{"/", "o"}},
+	{name: "help", steps: []string{"?"}},
+	{name: "skill screen", steps: []string{"enter"}},
+	{name: "skill screen with a mark", steps: []string{"enter", "down", " "}},
+	{name: "confirm", steps: []string{"enter", "u"}},
+	{name: "diff", steps: []string{"enter", "d"}},
+	{name: "skill help", steps: []string{"enter", "?"}},
+	{name: "adopt", steps: []string{"a"}},
+	{name: "new", steps: []string{"n"}},
+	{name: "import", steps: []string{"I"}},
+	{name: "export", steps: []string{"enter", "x"}},
+	{name: "theme", steps: []string{"t"}},
+	{name: "log", steps: []string{"L"}},
+	{name: "log over help", steps: []string{"?", "L"}},
+	{name: "log on the skill screen", steps: []string{"enter", "L"}},
+}
+
 func TestEveryScreenFitsTheTerminal(t *testing.T) {
-	screens := []struct {
-		name  string
-		steps []string
-	}{
-		{name: "main grid"},
-		{name: "filter", steps: []string{"/", "o"}},
-		{name: "help", steps: []string{"?"}},
-		{name: "skill screen", steps: []string{"enter"}},
-		{name: "skill screen with a mark", steps: []string{"enter", "down", " "}},
-		{name: "confirm", steps: []string{"enter", "u"}},
-		{name: "diff", steps: []string{"enter", "d"}},
-		{name: "skill help", steps: []string{"enter", "?"}},
-	}
 	for _, size := range layoutSizes {
-		for _, sc := range screens {
+		for _, sc := range allScreens {
 			t.Run(fmt.Sprintf("%s at %dx%d", sc.name, size[0], size[1]), func(t *testing.T) {
 				m, b := layoutModel(t, size[0], size[1])
 				b.changes = []ops.FileChange{{Rel: "SKILL.md", Kind: ops.ChangeChanged, Diff: "--- a\n+++ b\n@@ -1 +1 @@\n-" + strings.Repeat("old ", 60) + "\n+" + strings.Repeat("new ", 60) + "\n"}}
@@ -164,39 +174,107 @@ func TestEveryScreenFitsTheTerminal(t *testing.T) {
 	}
 }
 
-func TestBarFitsOneRowAt80(t *testing.T) {
+// barRows returns the two rows of the bar at the foot of view.
+func barRows(view string) (first, second string) {
+	lines := strings.Split(view, "\n")
+	return lines[len(lines)-2], lines[len(lines)-1]
+}
+
+// powerlineGlyphs are the private-use separators of the nerd set (spec §9.5 drops them).
+const powerlineGlyphs = "\ue0b0\ue0b1\ue0b2\ue0b3"
+
+func TestBarFitsTwoRowsAt80(t *testing.T) {
 	m, _ := layoutModel(t, 80, 24)
-	lines := strings.Split(m.View(), "\n")
-	bar := lines[len(lines)-1]
-	if w := lipgloss.Width(bar); w != 80 {
-		t.Errorf("bar is %d columns, want 80: %q", w, bar)
+	first, second := barRows(m.View())
+	for _, row := range []string{first, second} {
+		if w := lipgloss.Width(row); w != 80 {
+			t.Errorf("bar row is %d columns, want 80: %q", w, row)
+		}
 	}
-	for _, want := range []string{"MAIN", "3 need attention", "q quit"} {
-		if !strings.Contains(bar, want) {
-			t.Errorf("bar lacks %q: %q", want, bar)
+	if !strings.Contains(first, "MAIN") || !strings.Contains(first, "3 need attention") {
+		t.Errorf("first bar row lacks the badge or the counts: %q", first)
+	}
+	if !strings.Contains(second, "↑↓/jk move") {
+		t.Errorf("second bar row lacks the hints: %q", second)
+	}
+}
+
+// TestBarIsTwoRowsOnEveryScreen checks the bar on every screen and overlay at each
+// size: two rows, each as wide as the terminal, the badge first, and no powerline glyph.
+func TestBarIsTwoRowsOnEveryScreen(t *testing.T) {
+	for _, size := range layoutSizes {
+		for _, sc := range allScreens {
+			t.Run(fmt.Sprintf("%s at %dx%d", sc.name, size[0], size[1]), func(t *testing.T) {
+				m, b := layoutModel(t, size[0], size[1])
+				b.changes = []ops.FileChange{{Rel: "SKILL.md", Kind: ops.ChangeChanged, Diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"}}
+				m = press(t, m, sc.steps...)
+				view := m.View()
+				first, second := barRows(view)
+				for _, row := range []string{first, second} {
+					if w := lipgloss.Width(row); w != size[0] {
+						t.Errorf("bar row is %d columns, want %d: %q", w, size[0], row)
+					}
+				}
+				if !strings.Contains(first, m.modeName()) {
+					t.Errorf("first bar row lacks the badge %q: %q", m.modeName(), first)
+				}
+				if !strings.Contains(sgr.ReplaceAllString(first, ""), "skills ·") {
+					t.Errorf("first bar row lacks the counts: %q", first)
+				}
+				if !strings.HasPrefix(sgr.ReplaceAllString(second, ""), " ") {
+					t.Errorf("second bar row has no left pad: %q", second)
+				}
+				if strings.ContainsAny(view, powerlineGlyphs) {
+					t.Errorf("screen has a powerline glyph:\n%s", view)
+				}
+			})
 		}
 	}
 }
 
-func TestBarWithNerdIconsFitsOneRowAt80(t *testing.T) {
+// TestGlobalKeysStayAtTheEndAt80 checks that at 80 columns the bar cuts the screen's
+// own hints and keeps the global keys whole at the end of row 2.
+func TestGlobalKeysStayAtTheEndAt80(t *testing.T) {
+	tests := []struct {
+		name  string
+		steps []string
+		want  []string
+	}{
+		{name: "main grid", want: []string{"L log", "? help", "q quit"}},
+		{name: "skill screen", steps: []string{"enter"}, want: []string{"esc back", "L log", "? help", "q quit"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := layoutModel(t, 80, 24)
+			m = press(t, m, tt.steps...)
+			_, second := barRows(m.View())
+			plain := strings.TrimRight(sgr.ReplaceAllString(second, ""), " ")
+			if want := strings.Join(tt.want, " · "); !strings.HasSuffix(plain, want) {
+				t.Errorf("second bar row = %q, want it to end with %q", plain, want)
+			}
+			if !strings.Contains(plain, "…") {
+				t.Errorf("second bar row shows all the own hints at 80 columns, want them cut: %q", plain)
+			}
+		})
+	}
+}
+
+func TestNerdBarHasNoSeparators(t *testing.T) {
 	th, _ := testLook(t)
 	set, ok := icons.ByName("nerd")
 	if !ok {
 		t.Fatal("icon set nerd is missing")
 	}
 	b := &fakeBackend{rows: []ops.Row{row("code-review", "claude", ops.Synced)}}
-	m := New(b, []config.Agent{claude}, th, set, true)
+	m := testModel(b, []config.Agent{claude}, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	m = sized(t, m, 80, 24)
-	lines := strings.Split(m.View(), "\n")
-	bar := lines[len(lines)-1]
-	if w := lipgloss.Width(bar); w != 80 {
-		t.Errorf("bar is %d columns, want 80: %q", w, bar)
+	view := m.View()
+	if strings.ContainsAny(view, powerlineGlyphs) {
+		t.Errorf("nerd bar has a powerline glyph:\n%s", view)
 	}
-	for _, sep := range []string{set.SepRight, set.SepLeft} {
-		if !strings.Contains(bar, sep) {
-			t.Errorf("bar lacks the powerline separator %q: %q", sep, bar)
-		}
+	if first, second := barRows(view); lipgloss.Width(first) != 80 || lipgloss.Width(second) != 80 {
+		t.Errorf("nerd bar rows are %d and %d columns, want 80", lipgloss.Width(first), lipgloss.Width(second))
 	}
 }
 
@@ -225,7 +303,7 @@ func bodyMargins(t *testing.T, m Model) (left, right int) {
 	t.Helper()
 	lines := strings.Split(m.View(), "\n")
 	left, widest := m.width, 0
-	for _, line := range lines[m.headerHeight()+1 : len(lines)-1] {
+	for _, line := range lines[m.headerHeight()+1 : len(lines)-2] {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -273,7 +351,7 @@ func TestSkillRuleIsAsWideAsTheBlock(t *testing.T) {
 				t.Errorf("rule at line %d, want between the vault line %d and the agents at %d", rule, vaultLine, agentLine)
 			}
 			pad, widest := leadingSpaces(lines[rule]), 0
-			for i := m.headerHeight() + 1; i < len(lines)-1; i++ {
+			for i := m.headerHeight() + 1; i < len(lines)-2; i++ {
 				if i != rule {
 					widest = max(widest, lipgloss.Width(lines[i]))
 				}
@@ -412,21 +490,21 @@ func TestBodiesFitBeforeTheFrameCutsThem(t *testing.T) {
 
 func TestBarCountsSkillsOnTheMainScreen(t *testing.T) {
 	m, _ := layoutModel(t, 200, 60)
-	if bar := strings.Split(m.View(), "\n"); !strings.Contains(bar[len(bar)-1], "4 skills · 0 invalid · 3 need attention") {
-		t.Errorf("bar lacks the counts: %q", bar[len(bar)-1])
+	if first, _ := barRows(m.View()); !strings.Contains(first, "4 skills · 0 invalid · 3 need attention") {
+		t.Errorf("bar lacks the counts: %q", first)
 	}
 }
 
 func TestBarNamesTheSkillScreenAndItsBackKey(t *testing.T) {
-	m, _ := layoutModel(t, 120, 40)
+	m, _ := layoutModel(t, 200, 60)
 	m = press(t, m, "enter")
-	bar := strings.Split(m.View(), "\n")
-	if last := bar[len(bar)-1]; !strings.Contains(last, "SKILL") || !strings.Contains(last, "esc back") {
-		t.Errorf("skill bar = %q", last)
+	first, second := barRows(m.View())
+	if !strings.Contains(first, "SKILL") || !strings.Contains(second, "esc back") {
+		t.Errorf("skill bar = %q / %q", first, second)
 	}
 }
 
-func TestBarHintsLoseTheirLeftEndFirst(t *testing.T) {
+func TestBarHintsCutAtTheEnd(t *testing.T) {
 	tests := []struct {
 		name string
 		s    string
@@ -434,13 +512,13 @@ func TestBarHintsLoseTheirLeftEndFirst(t *testing.T) {
 		want string
 	}{
 		{name: "fits", s: "a · b", w: 10, want: "a · b"},
-		{name: "cut from the left with an ellipsis", s: "a · b · c", w: 5, want: "… · c"},
+		{name: "cut at the end with an ellipsis", s: "a · b · c", w: 5, want: "a · …"},
 		{name: "nothing fits", s: "a · b", w: 0, want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tailCut(tt.s, tt.w); got != tt.want {
-				t.Errorf("tailCut(%q, %d) = %q, want %q", tt.s, tt.w, got, tt.want)
+			if got := truncate(tt.s, tt.w); got != tt.want {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tt.s, tt.w, got, tt.want)
 			}
 		})
 	}
@@ -519,47 +597,16 @@ func TestNoColorSelectsWithReverseVideo(t *testing.T) {
 	}
 }
 
-// TestBarSeparatesTheMessageFromTheRightSegment checks that a long or a short
-// message is followed by a separator before the counts, and that the bar still
-// fits 80 columns. Unicode joins with " │ ", nerd with its powerline separator.
-func TestBarSeparatesTheMessageFromTheRightSegment(t *testing.T) {
-	th, uni := testLook(t)
-	nerd, ok := icons.ByName("nerd")
-	if !ok {
-		t.Fatal("icon set nerd is missing")
+// TestBarShowsNoMessage checks that an action result leaves the bar: the bar keeps
+// its counts, and the message is a notification instead.
+func TestBarShowsNoMessage(t *testing.T) {
+	m, _ := layoutModel(t, 80, 24)
+	m.notify(noteSuccess, "installed", "install alpha in claude")
+	first, second := barRows(m.View())
+	if strings.Contains(first+second, "install alpha") {
+		t.Errorf("bar shows the message: %q / %q", first, second)
 	}
-	long := strings.Repeat("import pasted-in-tui 16 skills ", 3)
-	tests := []struct {
-		name string
-		set  icons.Set
-		msg  string
-		end  string // what the message ends with in the bar
-		join string // the separator before the counts
-	}{
-		{name: "unicode long", set: uni, msg: long, end: "…", join: " │ "},
-		{name: "unicode short", set: uni, msg: "ok", end: "ok", join: " │ "},
-		{name: "nerd long", set: nerd, msg: long, end: "…", join: " " + nerd.SepLeft + " "},
-		{name: "nerd short", set: nerd, msg: "ok", end: "ok", join: " " + nerd.SepLeft + " "},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := &fakeBackend{rows: []ops.Row{row("code-review", "claude", ops.Synced)}}
-			m := sized(t, loaded(t, b, []config.Agent{claude}), 80, 24)
-			m = New(b, []config.Agent{claude}, th, tt.set, true)
-			m, _ = settle(t, m, m.Init())
-			m = sized(t, m, 80, 24)
-			m.setResult(tt.msg, false)
-			lines := strings.Split(m.View(), "\n")
-			bar := lines[len(lines)-1]
-			if w := lipgloss.Width(bar); w != 80 {
-				t.Errorf("bar is %d columns, want 80: %q", w, bar)
-			}
-			if !strings.Contains(bar, tt.end) {
-				t.Errorf("bar lacks the end of the message %q: %q", tt.end, bar)
-			}
-			if want := tt.join + m.counts(); !strings.Contains(bar, want) {
-				t.Errorf("bar lacks the separator before the counts %q: %q", want, bar)
-			}
-		})
+	if !strings.Contains(first, m.counts()) {
+		t.Errorf("bar lacks the counts %q: %q", m.counts(), first)
 	}
 }

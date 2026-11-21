@@ -10,6 +10,8 @@ type keyMap struct {
 	enter, esc            key.Binding
 	filter, refresh       key.Binding
 	help, quit, forceQuit key.Binding
+	// log opens the LOG view of the notifications.
+	log key.Binding
 	// The main screen's keys for work that is not built yet.
 	adopt, newSkill, importTar, theme key.Binding
 	// The skill screen's keys. adopt is also a main key, above.
@@ -37,6 +39,7 @@ func newKeyMap() keyMap {
 		help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		quit:      key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 		forceQuit: key.NewBinding(key.WithKeys("ctrl+c")),
+		log:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "log")),
 
 		adopt:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "adopt")),
 		newSkill:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
@@ -79,9 +82,14 @@ var (
 	restoreHint = key.NewBinding(key.WithHelp("esc", "restore"))
 )
 
-// mainHints lists the main screen bindings in hint order.
+// mainHints lists the main screen's own bindings in hint order.
 func (k keyMap) mainHints() []key.Binding {
-	return []key.Binding{moveHint, k.enter, k.filter, k.refresh, k.adopt, k.newSkill, k.importTar, k.theme, k.help, k.quit}
+	return []key.Binding{moveHint, k.enter, k.filter, k.refresh, k.adopt, k.newSkill, k.importTar, k.theme}
+}
+
+// mainGlobals lists the main screen's global bindings. The bar shows them last.
+func (k keyMap) mainGlobals() []key.Binding {
+	return []key.Binding{k.log, k.help, k.quit}
 }
 
 // filterHints lists the bindings the bar shows while filtering.
@@ -89,7 +97,13 @@ func (k keyMap) filterHints() []key.Binding {
 	return []key.Binding{filterApplyHint, filterClearHint}
 }
 
-// skillHints lists the skill screen bindings in hint order.
+// skillHints lists the skill screen's own bindings in hint order.
 func (k keyMap) skillHints() []key.Binding {
-	return []key.Binding{moveHint, k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.export, k.remove, backHint, k.help, k.quit}
+	return []key.Binding{moveHint, k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.export, k.remove}
+}
+
+// skillGlobals lists the skill screen's global bindings, back first. The bar shows
+// them last.
+func (k keyMap) skillGlobals() []key.Binding {
+	return []key.Binding{backHint, k.log, k.help, k.quit}
 }

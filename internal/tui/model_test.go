@@ -7,12 +7,15 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
+	"sapato/internal/tui/icons"
+	"sapato/internal/tui/theme"
 	"sapato/internal/vault"
 )
 
@@ -208,12 +211,41 @@ func press(t *testing.T, m Model, keys ...string) Model {
 	return m
 }
 
+// testModel is New with the repaint timers stubbed out. settle runs every command
+// at once, and a real timer would hold each test for the life of a notification.
+func testModel(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColor bool) Model {
+	m := New(b, agents, th, set, noColor)
+	m.tick = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
+	return m
+}
+
+// lastMsg is the message of the newest notification, or "" when there is none.
+func (m Model) lastMsg() string {
+	if len(m.notes) == 0 {
+		return ""
+	}
+	return m.notes[len(m.notes)-1].message
+}
+
+// lastNote is the newest notification, or the zero notification when there is none.
+func (m Model) lastNote() notification {
+	if len(m.notes) == 0 {
+		return notification{}
+	}
+	return m.notes[len(m.notes)-1]
+}
+
+// lastErr reports whether the newest notification is an error.
+func (m Model) lastErr() bool {
+	return len(m.notes) > 0 && m.notes[len(m.notes)-1].kind == noteError
+}
+
 // loaded returns a model over b that has loaded its status. The calls made
 // so far are forgotten, so a test sees only its own calls.
 func loaded(t *testing.T, b *fakeBackend, agents []config.Agent) Model {
 	t.Helper()
 	th, set := testLook(t)
-	m := New(b, agents, th, set, true)
+	m := testModel(b, agents, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	b.calls = nil
 	return m
@@ -349,11 +381,11 @@ func TestActionsOnCursorCell(t *testing.T) {
 			if !slices.Equal(b.calls, tt.wantCalls) {
 				t.Errorf("calls:\n got %q\nwant %q", b.calls, tt.wantCalls)
 			}
-			if tt.wantMsg != "" && m.result != tt.wantMsg {
-				t.Errorf("result = %q, want %q", m.result, tt.wantMsg)
+			if tt.wantMsg != "" && m.lastMsg() != tt.wantMsg {
+				t.Errorf("result = %q, want %q", m.lastMsg(), tt.wantMsg)
 			}
-			if m.resultErr != tt.wantErr {
-				t.Errorf("resultErr = %t, want %t", m.resultErr, tt.wantErr)
+			if m.lastErr() != tt.wantErr {
+				t.Errorf("error = %t, want %t", m.lastErr(), tt.wantErr)
 			}
 		})
 	}
@@ -362,8 +394,8 @@ func TestActionsOnCursorCell(t *testing.T) {
 func TestConfirmCancelWithEscapeMakesNoCall(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
 	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "u", "esc")
-	if m.mode != modeNormal || m.result != "cancelled" {
-		t.Errorf("mode = %v, result = %q; want matrix and cancelled", m.mode, m.result)
+	if last := m.lastNote(); m.mode != modeNormal || last.title != "cancelled" || last.message != "uninstall alpha in claude" {
+		t.Errorf("mode = %v, note = %q %q; want matrix and cancelled uninstall", m.mode, last.title, last.message)
 	}
 	if want := []string{"uninstall alpha dry=true force=false"}; !slices.Equal(b.calls, want) {
 		t.Errorf("calls = %q, want %q", b.calls, want)
@@ -373,8 +405,8 @@ func TestConfirmCancelWithEscapeMakesNoCall(t *testing.T) {
 func TestActionWithNoSkillReportsIt(t *testing.T) {
 	b := &fakeBackend{}
 	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "i")
-	if m.result != nothingSelected || !m.resultErr {
-		t.Errorf("result = %q (err %t), want %q as an error", m.result, m.resultErr, nothingSelected)
+	if m.lastMsg() != nothingSelected || !m.lastErr() {
+		t.Errorf("result = %q (err %t), want %q as an error", m.lastMsg(), m.lastErr(), nothingSelected)
 	}
 	if len(b.calls) != 0 {
 		t.Errorf("calls = %q, want none", b.calls)
@@ -386,8 +418,8 @@ func TestLoadErrorIsShownAndRowsKept(t *testing.T) {
 	m := loaded(t, b, []config.Agent{claude})
 	b.statusErr = errors.New("disk gone")
 	m = press(t, m, "r")
-	if m.result != "disk gone" || !m.resultErr {
-		t.Errorf("result = %q (err %t), want the load error", m.result, m.resultErr)
+	if m.lastMsg() != "disk gone" || !m.lastErr() {
+		t.Errorf("result = %q (err %t), want the load error", m.lastMsg(), m.lastErr())
 	}
 	if got := m.skills; !slices.Equal(got, []string{"alpha"}) {
 		t.Errorf("skills = %q, want the rows kept", got)
@@ -401,6 +433,26 @@ func TestRefreshKeepsCursorOnSameSkill(t *testing.T) {
 	m = press(t, m, "r")
 	if got := m.skills[m.row]; got != "beta" {
 		t.Errorf("cursor on %q, want beta", got)
+	}
+}
+
+func TestRefreshNotifiesOnceAndLoadsDoNot(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.NotInstalled), row("beta", "claude", ops.Synced)}}
+	th, set := testLook(t)
+	m := testModel(b, []config.Agent{claude}, th, set, true)
+	m, _ = settle(t, m, m.Init())
+	if len(m.notes) != 0 {
+		t.Fatalf("initial load pushed %d notifications, want none", len(m.notes))
+	}
+
+	m = press(t, m, "r")
+	if last := m.lastNote(); len(m.notes) != 1 || last.kind != noteInfo || last.title != "refreshed" || last.message != "2 skills" {
+		t.Fatalf("after r: %d notifications, last %+v; want one info refreshed 2 skills", len(m.notes), last)
+	}
+
+	m = press(t, m, "enter", "i")
+	if last := m.lastNote(); len(m.notes) != 2 || last.title != "installed" {
+		t.Errorf("after install: %d notifications, last %+v; want the install alone after the refresh", len(m.notes), last)
 	}
 }
 
@@ -441,8 +493,8 @@ func TestDiffErrorIsShown(t *testing.T) {
 		diffErr: errors.New("diff alpha in claude: not installed"),
 	}
 	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "d")
-	if m.mode != modeNormal || !m.resultErr || !strings.Contains(m.result, "not installed") {
-		t.Errorf("mode = %v, result = %q (err %t); want matrix with the error", m.mode, m.result, m.resultErr)
+	if m.mode != modeNormal || !m.lastErr() || !strings.Contains(m.lastMsg(), "not installed") {
+		t.Errorf("mode = %v, result = %q (err %t); want matrix with the error", m.mode, m.lastMsg(), m.lastErr())
 	}
 }
 
@@ -529,7 +581,7 @@ func TestEveryStatusHasAGlyphInTheMatrix(t *testing.T) {
 		rows = append(rows, row(fmt.Sprintf("skill-%d", i), "claude", st.state))
 	}
 	th, set := testLook(t)
-	m := New(&fakeBackend{rows: rows}, []config.Agent{claude}, th, set, true)
+	m := testModel(&fakeBackend{rows: rows}, []config.Agent{claude}, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	view := m.View()
 	if len(states) != 8 {
@@ -690,8 +742,8 @@ func TestForceRefusalAsksForForce(t *testing.T) {
 					if want := []string{tt.op + " alpha dry=true force=false"}; !slices.Equal(b.calls, want) {
 						t.Errorf("%s: calls = %q, want %q", k, b.calls, want)
 					}
-					if m.mode != modeNormal || m.result != "cancelled" {
-						t.Errorf("%s: mode = %v, result = %q; want matrix and cancelled", k, m.mode, m.result)
+					if last := m.lastNote(); m.mode != modeNormal || last.title != "cancelled" || last.message != tt.op+" alpha in claude" {
+						t.Errorf("%s: mode = %v, note = %q %q; want matrix and cancelled %s", k, m.mode, last.title, last.message, tt.op)
 					}
 				}
 			})
@@ -702,8 +754,8 @@ func TestForceRefusalAsksForForce(t *testing.T) {
 				if !slices.Equal(b.calls, want) {
 					t.Errorf("calls = %q, want %q", b.calls, want)
 				}
-				if m.mode != modeNormal || m.resultErr || m.result != tt.op+" alpha in claude" {
-					t.Errorf("mode = %v, result = %q (err %t); want matrix and %s alpha in claude", m.mode, m.result, m.resultErr, tt.op)
+				if m.mode != modeNormal || m.lastErr() || m.lastMsg() != tt.op+" alpha in claude" {
+					t.Errorf("mode = %v, result = %q (err %t); want matrix and %s alpha in claude", m.mode, m.lastMsg(), m.lastErr(), tt.op)
 				}
 			})
 		})

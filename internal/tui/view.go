@@ -46,6 +46,8 @@ func (m Model) body() []string {
 		return m.inputBlock(m.pathBody)
 	case modeTheme:
 		return m.dialogBlock(m.themeBody)
+	case modeLog:
+		return m.dialogBlock(m.logBody)
 	}
 	if m.screen == screenSkill {
 		return m.skillBody()
@@ -54,7 +56,8 @@ func (m Model) body() []string {
 }
 
 // frame stacks the header, a rule, the body fitted to the rows between the rule
-// and the bar, and the bar. Before the first size message the body is not fitted.
+// and the bar, and the two bar rows. The notifications are drawn over the body.
+// Before the first size message the body is not fitted.
 func (m Model) frame(body []string) string {
 	lines := append(m.headerLines(), m.rule())
 	if h := m.bodyHeight(); h > 0 {
@@ -62,9 +65,10 @@ func (m Model) frame(body []string) string {
 		for len(body) < h {
 			body = append(body, "")
 		}
+		body = m.overlay(body)
 	}
 	lines = append(lines, body...)
-	lines = append(lines, m.bar())
+	lines = append(lines, m.bar()...)
 	return m.fit(lines)
 }
 
@@ -83,12 +87,12 @@ func (m Model) headerHeight() int {
 }
 
 // bodyHeight is the number of lines between the rule under the header and the
-// bar. It is 0 before the terminal reports its size.
+// bar, which takes two rows. It is 0 before the terminal reports its size.
 func (m Model) bodyHeight() int {
 	if m.height == 0 {
 		return 0
 	}
-	return max(1, m.height-m.headerHeight()-2)
+	return max(1, m.height-m.headerHeight()-3)
 }
 
 // headerLines returns the header, centered: the art and tagline, or the one-line
@@ -135,6 +139,8 @@ func (m Model) modeName() string {
 		return "EXPORT"
 	case modeTheme:
 		return "THEME"
+	case modeLog:
+		return "LOG"
 	}
 	if m.screen == screenSkill {
 		return "SKILL"
@@ -456,104 +462,87 @@ func (m Model) helpBody(w int) []string {
 	return lines
 }
 
-// hints lists the bindings of the current screen, for the bar and the help view.
+// hints lists the bindings of the current screen, for the help view: the screen's
+// own keys, then the global keys.
 func (m Model) hints() []key.Binding {
-	if m.screen == screenSkill {
-		return m.keys.skillHints()
-	}
-	return m.keys.mainHints()
+	own, global := m.screenHints()
+	return append(own, global...)
 }
 
-// barHints lists the bindings the bar shows for the current mode.
-func (m Model) barHints() []key.Binding {
+// screenHints lists the bindings of the current screen as its own keys and its
+// global keys. The bar cuts the own keys first.
+func (m Model) screenHints() (own, global []key.Binding) {
+	if m.screen == screenSkill {
+		return m.keys.skillHints(), m.keys.skillGlobals()
+	}
+	return m.keys.mainHints(), m.keys.mainGlobals()
+}
+
+// barHints lists the bindings the bar shows for the current mode, as the screen's
+// own keys and its global keys. The other modes have no global keys.
+func (m Model) barHints() (own, global []key.Binding) {
 	switch m.mode {
 	case modeFilter:
-		return m.keys.filterHints()
+		return m.keys.filterHints(), nil
 	case modeConfirm:
-		return []key.Binding{m.keys.yes, m.keys.no}
+		return []key.Binding{m.keys.yes, m.keys.no}, nil
 	case modeDiff:
-		return []key.Binding{m.keys.closeView, scrollHint}
+		return []key.Binding{m.keys.closeView, scrollHint}, nil
 	case modeHelp:
-		return []key.Binding{m.keys.closeView}
+		return []key.Binding{m.keys.closeView}, nil
 	case modeAdopt:
-		return []key.Binding{moveHint, adoptHint, backHint}
+		return []key.Binding{moveHint, adoptHint, backHint}, nil
 	case modeNew:
-		return []key.Binding{m.keys.save, cancelHint}
+		return []key.Binding{m.keys.save, cancelHint}, nil
 	case modeImport, modeExport:
-		return []key.Binding{runHint, cancelHint}
+		return []key.Binding{runHint, cancelHint}, nil
 	case modeTheme:
-		return []key.Binding{moveHint, keepHint, restoreHint}
+		return []key.Binding{moveHint, keepHint, restoreHint}, nil
+	case modeLog:
+		return []key.Binding{scrollHint, m.keys.closeView}, nil
 	}
-	return m.hints()
+	return m.screenHints()
 }
 
-// bar is the last row: the mode badge, the message, and the right segment of
-// counts and key hints. When the bar is narrow, the hints lose their left end.
-func (m Model) bar() string {
+// bar is the bottom bar of spec §9.1, two rows. The first has the mode badge and the
+// counts, with the filter input after them while filtering. The second has the key
+// hints, with the global keys last. Both rows fill the width in the Mantle background.
+func (m Model) bar() []string {
 	name := m.modeName()
-	badge := m.styles.badge(name).Render(" " + name + " ")
-	lead := m.styles.bar.Render(" ")
-	// edge counts the cells the powerline right segment adds: its separator and a
-	// pad on each side of its text.
-	edge := 0
-	if m.icons.Powerline {
-		lead = m.styles.powerline(m.styles.th.ModeColor(name)).Render(m.icons.SepRight) + m.styles.bar.Render(" ")
-		edge = 3
+	first := m.styles.badge(name).Render(" " + name + " ")
+	first += m.styles.bar.Render(" ") + m.styles.barSub.Render(m.counts())
+	if m.mode == modeFilter {
+		first += m.styles.barSub.Render(" · ") + m.filter.View()
 	}
-	avail := max(0, m.layoutWidth()-lipgloss.Width(badge)-lipgloss.Width(lead))
-
-	msg, msgStyle := m.barMessage()
-	counts := ""
-	if m.screen == screenMain && m.mode != modeConfirm {
-		counts = m.counts()
-	}
-	hints := joinHints(m.barHints())
-	sep := ""
-	if counts != "" && hints != "" {
-		sep = " │ "
-	}
-	// The message keeps a third of the bar at most, and the separator before the
-	// right segment is reserved before the segment is cut.
-	joint := ""
-	if msg != "" {
-		joint = m.barJoint()
-	}
-	natural := edge + lipgloss.Width(counts) + lipgloss.Width(sep) + lipgloss.Width(hints)
-	room := min(natural, avail-min(lipgloss.Width(msg), avail/3)-lipgloss.Width(joint))
-	hintRoom := room - edge - lipgloss.Width(counts) - lipgloss.Width(sep)
-	if hintRoom < 0 {
-		hints, sep = "", ""
-	} else {
-		hints = tailCut(hints, hintRoom)
-	}
-	right := clip(m.barRight(counts, sep, hints, edge), avail)
-	if right == "" {
-		joint = ""
-	}
-
-	msgRoom := avail - lipgloss.Width(right) - lipgloss.Width(joint)
-	msgShown := ""
-	switch {
-	case msg == "":
-	case m.mode == modeFilter:
-		msgShown = clip(msgStyle.Render(msg), msgRoom)
-	default:
-		msgShown = msgStyle.Render(truncate(msg, msgRoom))
-	}
-	gap := max(0, msgRoom-lipgloss.Width(msgShown))
+	own, global := m.barHints()
+	second := m.styles.bar.Render(" ") + m.styles.barDim.Render(hintText(own, global, m.layoutWidth()-1))
 	if m.width == 0 {
-		gap = 1
+		return []string{first, second}
 	}
-	return clip(badge+lead+msgShown+m.styles.bar.Render(strings.Repeat(" ", gap))+joint+right, m.layoutWidth())
+	return []string{m.barRow(first), m.barRow(second)}
 }
 
-// barJoint separates the message from the right segment. With powerline the
-// segment starts with its own separator, so only a space goes before it.
-func (m Model) barJoint() string {
-	if m.icons.Powerline {
-		return m.styles.bar.Render(" ")
+// hintText joins the hints to w columns. The global keys come last and are kept
+// whole while they fit. The own keys before them are cut with an ellipsis.
+func hintText(own, global []key.Binding, w int) string {
+	head, tail := joinHints(own), joinHints(global)
+	switch {
+	case tail == "":
+		return truncate(head, w)
+	case head == "":
+		return truncate(tail, w)
 	}
-	return m.styles.barDim.Render(" │ ")
+	room := w - lipgloss.Width(tail) - lipgloss.Width(" · ")
+	if room < 1 {
+		return truncate(tail, w)
+	}
+	return truncate(head, room) + " · " + tail
+}
+
+// barRow fills a bar row to the width in the Mantle background, and cuts what does
+// not fit.
+func (m Model) barRow(s string) string {
+	return clip(s+m.styles.bar.Render(strings.Repeat(" ", max(0, m.width-lipgloss.Width(s)))), m.width)
 }
 
 // layoutWidth is the width the bar and the screen bodies are laid out in. Before
@@ -563,26 +552,6 @@ func (m Model) layoutWidth() int {
 		return 1 << 16
 	}
 	return m.width
-}
-
-// barRight paints the right segment. With powerline it sits on the segment color.
-func (m Model) barRight(counts, sep, hints string, edge int) string {
-	if edge == 0 {
-		return m.styles.barDim.Render(counts + sep + hints)
-	}
-	return m.styles.powerline(m.styles.th.Surface).Render(m.icons.SepLeft) + m.styles.seg.Render(" "+counts+sep+hints+" ")
-}
-
-// barMessage is the text of the bar's message part: the filter input while
-// filtering, otherwise the last result, in red when it is an error.
-func (m Model) barMessage() (string, lipgloss.Style) {
-	if m.mode == modeFilter {
-		return m.filter.View(), m.styles.bar
-	}
-	if m.resultErr {
-		return m.result, m.styles.barFail
-	}
-	return m.result, m.styles.bar
 }
 
 // counts is the main screen's count segment: skills, invalid vault skills, and
@@ -760,21 +729,6 @@ func clip(s string, w int) string {
 		return ""
 	}
 	return lipgloss.NewStyle().MaxWidth(w).Render(s)
-}
-
-// tailCut keeps the last w columns of s, marking the cut with an ellipsis.
-func tailCut(s string, w int) string {
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	if w <= 0 {
-		return ""
-	}
-	r := []rune(s)
-	for len(r) > 0 && lipgloss.Width(string(r))+1 > w {
-		r = r[1:]
-	}
-	return "…" + string(r)
 }
 
 // truncate cuts s to w columns, ending with an ellipsis when it had to cut. A width

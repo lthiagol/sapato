@@ -172,7 +172,8 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 3. **Screen body** (below).
 4. **Bottom bar** (full width, 2 rows, Mantle background, no powerline glyphs anywhere):
    - Row 1: mode badge (` MAIN ` etc.: bold, Base text on the mode color, §9.4), a space, then the counts in subtext (`15 skills · 6 invalid · 4 need attention`).
-   - Row 2: the context key hints in overlay color, joined with ` · `, truncated at the end with `…` if narrow.
+   - Row 2 (1-col left pad, like row 1): the context key hints in overlay color, joined with ` · `. The global keys (`esc back` where it applies, `L log`, `? help`, `q quit`) are always shown at the end of the row; if the row is too narrow, the screen-specific hints before them are truncated with `…`.
+   - Row 1 keeps the counts in every mode; FILTER appends ` · / <query>` after them.
    - The bar shows no action messages; those are notifications (§9.6).
 
 ### 9.2 Main screen (mode `MAIN`)

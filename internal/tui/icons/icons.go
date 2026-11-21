@@ -4,14 +4,13 @@ package icons
 
 import "sapato/internal/ops"
 
-// Set is one glyph set. Status has a glyph for each of the eight states.
-// Powerline is set for the nerd set, whose separators join colored segments.
+// Set is one glyph set. Status has a glyph for each of the eight states. Info
+// marks an info notification and Exec an executable file. Sets carry no separators.
 type Set struct {
-	Status            map[ops.State]string
-	Marker, Mark      string
-	SepRight, SepLeft string
-	Rule              string
-	Powerline         bool
+	Status       map[ops.State]string
+	Marker, Mark string
+	Exec, Info   string
+	Rule         string
 }
 
 // sets holds the glyph sets by name. Names match config.IconNames.
@@ -27,12 +26,11 @@ var sets = map[string]Set{
 			ops.Unmanaged:    "\uf059",
 			ops.Missing:      "\uf071",
 		},
-		Marker:    "\uf054",
-		Mark:      "\uf14a",
-		SepRight:  "\ue0b0",
-		SepLeft:   "\ue0b2",
-		Rule:      "─",
-		Powerline: true,
+		Marker: "\uf054",
+		Mark:   "\uf14a",
+		Exec:   "\uf013",
+		Info:   "\uf05a",
+		Rule:   "─",
 	},
 	"unicode": {
 		Status: map[ops.State]string{
@@ -45,11 +43,11 @@ var sets = map[string]Set{
 			ops.Unmanaged:    "◆",
 			ops.Missing:      "!",
 		},
-		Marker:   "▶",
-		Mark:     "■",
-		SepRight: "│",
-		SepLeft:  "│",
-		Rule:     "─",
+		Marker: "▶",
+		Mark:   "■",
+		Exec:   "⚙",
+		Info:   "ℹ",
+		Rule:   "─",
 	},
 	"ascii": {
 		Status: map[ops.State]string{
@@ -62,11 +60,11 @@ var sets = map[string]Set{
 			ops.Unmanaged:    "?",
 			ops.Missing:      "!",
 		},
-		Marker:   ">",
-		Mark:     "*",
-		SepRight: "|",
-		SepLeft:  "|",
-		Rule:     "-",
+		Marker: ">",
+		Mark:   "*",
+		Exec:   "x",
+		Info:   "i",
+		Rule:   "-",
 	},
 }
 

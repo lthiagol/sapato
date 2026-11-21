@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
@@ -46,6 +47,7 @@ const (
 	modeImport
 	modeExport
 	modeTheme
+	modeLog
 )
 
 const nothingSelected = "nothing selected"
@@ -117,8 +119,15 @@ type Model struct {
 	area      textarea.Model  // the NEW editor
 	path      textinput.Model // the IMPORT and EXPORT path
 
-	result    string // last action result or error, shown in the bar
-	resultErr bool
+	notes   []notification // every notification of the session, oldest first, at most maxNotes
+	pushed  int            // notifications pushed so far, LOG drops the oldest past maxNotes
+	logBack mode           // the mode LOG closes back to
+	logTop  int            // first LOG entry shown
+
+	// now is the clock of the notifications. tick schedules the repaint when one
+	// runs out. Tests replace both.
+	now  func() time.Time
+	tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
 
 	width, height int
 }
@@ -145,14 +154,17 @@ func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColo
 		th:          th,
 		area:        newEditor(),
 		path:        newPathInput(),
+		now:         time.Now,
+		tick:        tea.Tick,
 	}
 }
 
 // loadedMsg carries the result of a status load.
 type loadedMsg struct {
-	rows   []ops.Row
-	skills []vault.Skill
-	err    error
+	rows    []ops.Row
+	skills  []vault.Skill
+	refresh bool // the load was asked for by r, so it notifies what it loaded
+	err     error
 }
 
 // planMsg carries the dry-run plan of an action.
@@ -178,10 +190,19 @@ type diffMsg struct {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.loadCmd()
+	return m.loadCmd(false)
 }
 
+// Update is the transition for msg. A notification that msg pushes gets a repaint
+// when its time runs out.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	before := m.pushed
+	next, cmd := m.handle(msg)
+	return next, tea.Batch(cmd, next.expiries(before))
+}
+
+// handle is the transition for msg, without the expiry repaints.
+func (m Model) handle(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -194,10 +215,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onExportName(msg)
 	case loadedMsg:
 		if msg.err != nil {
-			m.setResult(msg.err.Error(), true)
+			m.notify(noteError, "error", msg.err.Error())
 			return m, nil
 		}
 		m.load(msg.rows, msg.skills)
+		if msg.refresh {
+			m.notify(noteInfo, "refreshed", fmt.Sprintf("%d skills", len(m.names)))
+		}
 	case planMsg:
 		return m.onPlan(msg)
 	case appliedMsg:
@@ -213,6 +237,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.forceQuit) {
 		return m, tea.Quit
+	}
+	if key.Matches(msg, m.keys.log) && logOpensFrom(m.mode) {
+		return m.openLog(), nil
 	}
 	switch m.mode {
 	case modeFilter:
@@ -231,6 +258,8 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.pathKey(msg)
 	case modeTheme:
 		return m.themeKey(msg)
+	case modeLog:
+		return m.logKey(msg)
 	}
 	if m.screen == screenSkill {
 		return m.skillKey(msg)
@@ -271,7 +300,7 @@ func (m Model) mainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.setQuery("")
 		}
 	case key.Matches(msg, k.refresh):
-		return m, m.loadCmd()
+		return m, m.loadCmd(true)
 	case key.Matches(msg, k.adopt):
 		return m.openAdopt(), nil
 	case key.Matches(msg, k.newSkill):
@@ -291,7 +320,7 @@ func (m Model) mainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 // openSkill shows the skill under the grid cursor on the skill screen.
 func (m Model) openSkill() Model {
 	if m.row >= len(m.skills) {
-		m.setResult(nothingSelected, true)
+		m.notify(noteError, "error", nothingSelected)
 		return m
 	}
 	m.screen = screenSkill
@@ -373,11 +402,11 @@ func (m Model) targets() []config.Agent {
 // Install and update copy from the vault, so they wait on a skill the vault lacks.
 func (m Model) startAction(op string, agents []config.Agent) (Model, tea.Cmd) {
 	if len(agents) == 0 {
-		m.setResult("no enabled agents", true)
+		m.notify(noteError, "error", "no enabled agents")
 		return m, nil
 	}
 	if op != ops.OpUninstall && !m.inVault(m.open) {
-		m.setResult(m.open+" is not in the vault", true)
+		m.notify(noteError, "error", m.open+" is not in the vault")
 		return m, nil
 	}
 	return m, planCmd(m.backend, action{op: op, skill: m.open, agents: agents})
@@ -391,7 +420,7 @@ func (m Model) adopt() (Model, tea.Cmd) {
 			return m, planCmd(m.backend, action{op: ops.OpAdopt, skill: m.open, agents: []config.Agent{a}})
 		}
 	}
-	m.setResult("adopt needs an unmanaged copy", true)
+	m.notify(noteError, "error", "adopt needs an unmanaged copy")
 	return m, nil
 }
 
@@ -400,11 +429,11 @@ func (m Model) adopt() (Model, tea.Cmd) {
 func (m Model) openDiff() (Model, tea.Cmd) {
 	targets := m.targets()
 	if len(targets) == 0 {
-		m.setResult("no enabled agents", true)
+		m.notify(noteError, "error", "no enabled agents")
 		return m, nil
 	}
 	if !m.inVault(m.open) {
-		m.setResult(m.open+" is not in the vault", true)
+		m.notify(noteError, "error", m.open+" is not in the vault")
 		return m, nil
 	}
 	return m, diffCmd(m.backend, m.open, targets[0])
@@ -422,11 +451,11 @@ func (m Model) onPlan(msg planMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.err != nil {
-		m.setResult(msg.err.Error(), true)
+		m.notify(noteError, "error", msg.err.Error())
 		return m, nil
 	}
 	if !hasWork(msg.plan) {
-		m.setResult(summarize(msg.plan), false)
+		m.notify(noteInfo, "no change", summarize(msg.plan))
 		return m, nil
 	}
 	if msg.act.op == ops.OpUninstall || msg.act.op == ops.OpRemove {
@@ -460,12 +489,12 @@ func (m Model) confirmKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	m.pending = pending{}
 	m.mode = act.back
 	if !key.Matches(msg, m.keys.yes) {
-		m.setResult("cancelled", false)
+		m.notify(noteInfo, "cancelled", subject(act))
 		return m, nil
 	}
 	if act.op == opDiscard {
 		m.mode = modeNormal
-		m.setResult("new skill discarded", false)
+		m.notify(noteInfo, "discarded", "new skill discarded")
 		return m, nil
 	}
 	return m, applyCmd(m.backend, act)
@@ -475,19 +504,19 @@ func (m Model) confirmKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 // action is done. The adopt picker stays open, so the copies left can be adopted.
 func (m Model) onApplied(msg appliedMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
-		m.setResult(msg.err.Error(), true)
-		return m, m.loadCmd()
+		m.notify(noteError, "error", msg.err.Error())
+		return m, m.loadCmd(false)
 	}
-	m.setResult(summarize(msg.done), false)
+	m.notify(noteSuccess, doneTitle(msg.act.op), summarize(msg.done))
 	if msg.act.op != ops.OpAdopt {
 		m.mode = modeNormal
 	}
-	return m, m.loadCmd()
+	return m, m.loadCmd(false)
 }
 
 func (m Model) onDiff(msg diffMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
-		m.setResult(msg.err.Error(), true)
+		m.notify(noteError, "error", msg.err.Error())
 		return m, nil
 	}
 	m.diffTitle = fmt.Sprintf("diff %s in %s", msg.skill, msg.agent.ID)
@@ -534,15 +563,16 @@ func (m Model) helpKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 // loadCmd reads the status of every skill in every agent, and the vault skills.
-func (m Model) loadCmd() tea.Cmd {
+// refresh marks a load that r asked for.
+func (m Model) loadCmd(refresh bool) tea.Cmd {
 	b, agents := m.backend, m.agents
 	return func() tea.Msg {
 		rows, err := b.Status(agents)
 		if err != nil {
-			return loadedMsg{err: err}
+			return loadedMsg{err: err, refresh: refresh}
 		}
 		skills, err := b.Skills()
-		return loadedMsg{rows: rows, skills: skills, err: err}
+		return loadedMsg{rows: rows, skills: skills, refresh: refresh, err: err}
 	}
 }
 
@@ -635,11 +665,6 @@ func summarize(acts []ops.Action) string {
 		}
 	}
 	return strings.Join(parts, "; ")
-}
-
-func (m *Model) setResult(text string, isErr bool) {
-	m.result = text
-	m.resultErr = isErr
 }
 
 // load replaces the statuses and vault skills after a load. The grid cursor
