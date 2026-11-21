@@ -181,7 +181,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 - Cursor is per row (skill). No column cursor. Selected row uses the surface color background and a `▶`/`>` marker.
 - Status icon per cell (§9.5) colored by status. Empty cell (pair absent everywhere) = blank.
 - Keys: `↑↓`/`jk` move, `g`/`G` top/bottom, `pgup`/`pgdn`, `enter` open skill screen, `/` filter (substring; `esc` clears), `r` refresh, `a` adopt picker, `n` new skill, `I` import tarball (path prompt), `t` theme picker, `?` help, `q` quit.
-- Bar right segment: `N skills · N invalid · N need attention` (attention = outdated + modified + orphaned + missing).
+- Bar counts (row 1): `N skills · N invalid · N need attention` (attention = outdated + modified + orphaned + missing).
 
 ### 9.3 Skill screen (mode `SKILL`)
 
@@ -196,7 +196,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 - Narrow terminals (< 70 cols): sidebar stacked above details, both full width.
 - All widths via `lipgloss.Width`; long values truncated with `…`; nothing exceeds the terminal.
 - Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all enabled agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
-- Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with a bar message.
+- Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with an error notification.
 
 ### 9.4 Dialogs and modes
 
