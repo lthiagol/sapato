@@ -13,35 +13,45 @@ Sapato manages a portable *skill vault* (a plain folder) and installs skills fro
 
 ## 2. Config — `~/.config/sapato/config.toml`
 
-Override the path with the global `--config <path>` flag. No env vars. Missing config file = all defaults.
+Override the path with the global `--config <path>` flag. No env vars.
 
 ```toml
 vault = "~/sapato-vault"        # default if omitted
 
-[agents.claude]                 # every agent section is optional
-path = "~/.claude/skills"       # override default path
-enabled = true                  # default true
-
 [ui]
 theme = "catppuccin-mocha"      # see §9.5; default catppuccin-mocha
 icons = "nerd"                  # nerd | unicode | ascii; default nerd
+
+[agents]                        # name = path; order here = order in the UI
+claude   = "~/.claude/skills"
+cursor   = "~/.cursor/skills"
+pi       = "~/.pi/agent/skills"
+opencode = "~/.config/opencode/skills"
+agents   = "~/.agents/skills"
+# codex  = "~/.codex/skills"                                       # commented = not managed
+# work   = { path = "~/work/.claude/skills", reads = ["~/.agents/skills"] }
 ```
 
-The global `--icons` and `--theme` flags override `[ui]` for one run. Unknown theme or icon set → error listing the valid names.
+- **Agents are data.** Every agent uses the same placement (`<path>/<skill>/…` + `.sapato-lock.json`); supporting a new agent is one line. An agent is *configured* iff it has a line in `[agents]`; there is no `enabled` flag — comment or remove the line to stop managing it (sapato then no longer sees its installs).
+- Value is a path string, or an inline table `{ path = "...", reads = ["..."] }` where `reads` lists extra dirs that agent also reads (used by `doctor` overlap checks).
+- Names match `^[a-z][a-z0-9-]{0,31}$`. Order = order of the lines in the file (must be preserved when parsing). Two agents may not share a path (after `~` expansion and Clean).
+- **No `[agents]` table (or no config file)** → the built-in defaults below, in that order. A present `[agents]` table is authoritative; an empty one means no agents.
+- The old per-agent form (`[agents.claude]` with `path`/`enabled`) is rejected with an error explaining the new form.
+- **No config file**: CLI commands run on defaults and never write a config (only `sapato config init` does). The TUI asks once at launch, as a modal confirm, `No config found. Create <path>?`; `y` writes the same file as `config init`, `n` continues on defaults for this run.
+- The global `--icons` and `--theme` flags override `[ui]` for one run. Unknown theme or icon set → error listing the valid names.
+- `~` is expanded to the user home dir in every path.
 
-`~` is expanded to the user home dir in every path.
+### Built-in defaults
 
-### Built-in agents
+| name       | path                          | also reads (for `doctor`) |
+|------------|-------------------------------|---------------------------|
+| `claude`   | `~/.claude/skills`            | |
+| `cursor`   | `~/.cursor/skills`            | `~/.claude/skills` |
+| `pi`       | `~/.pi/agent/skills`          | `~/.agents/skills` |
+| `opencode` | `~/.config/opencode/skills`   | `~/.claude/skills`, `~/.agents/skills` |
+| `agents`   | `~/.agents/skills`            | |
 
-| id         | default path                  |
-|------------|-------------------------------|
-| `claude`   | `~/.claude/skills`            |
-| `cursor`   | `~/.cursor/skills`            |
-| `pi`       | `~/.pi/agent/skills`          |
-| `opencode` | `~/.config/opencode/skills`   |
-| `agents`   | `~/.agents/skills`            |
-
-Known read overlaps (used by `doctor`): `cursor` also reads `~/.claude/skills`; `opencode` also reads `~/.claude/skills` and `~/.agents/skills`; `pi` also reads `~/.agents/skills`.
+A configured agent named like a built-in, written as a plain string, inherits that built-in's `reads`; an inline table's `reads` replaces it.
 
 ## 3. Vault format
 
@@ -122,13 +132,13 @@ For each (skill, agent) pair, over the union of vault skills and target dirs:
 ## 7. Commands
 
 Global flags: `--config`, `--dry-run` (on mutating commands: print plan, change nothing).
-Agent selection: `-a/--agent <id>` repeatable, or `--all` (all enabled agents). Skill args accept globs.
+Agent selection: `-a/--agent <id>` repeatable, or `--all` (all configured agents). Skill args accept globs.
 
 Glob vs literal: a skill named literally that hits a hard refusal (invalid on install, unmanaged on uninstall) fails the whole call. A skill matched only by a glob in that situation is skipped and reported (`skip <skill> in <agent>: <reason>`). Refusals that `--force` can override (modified; unmanaged on install) always fail the call without `--force`, glob or not. Errors read `<skill> in <agent>: <status>`.
 
 | command | behavior |
 |---------|----------|
-| `sapato config` | print resolved config (vault, theme, icons, agents with paths and enabled) |
+| `sapato config` | print resolved config (vault, theme, icons, then agents in order with path and reads; notes when defaults are used because no `[agents]` table/config exists) |
 | `sapato config init` | write a commented starter config to the `--config` path (default `~/.config/sapato/config.toml`), creating parent dirs; refuses if the file exists unless `--force`; `--dry-run` prints it instead |
 | `sapato init [path]` | create a vault (`sapato.toml` + `skills/`) at path or configured vault; fail if `sapato.toml` exists |
 | `sapato list` | list vault skills: name, version, hash (short), valid/invalid + reason |
@@ -146,9 +156,9 @@ Glob vs literal: a skill named literally that hits a hard refusal (invalid on in
 | `sapato doctor` | report: invalid vault skills, corrupt locks, duplicate exposure via read overlaps (same skill visible to one agent from two dirs), missing/orphaned/modified entries |
 | `sapato tui` (also bare `sapato`) | interactive UI |
 
-Notes: `remove` counts an agent as "installed" if status is synced/outdated/modified in any configured agent (enabled or not); `missing` does not count. `adopt --force` overwrites a same-named vault skill. `import` takes the skill name from frontmatter (`--name` must match it).
+Notes: `remove` counts an agent as "installed" if status is synced/outdated/modified in any configured agent; `missing` does not count. `adopt --force` overwrites a same-named vault skill. `import` takes the skill name from frontmatter (`--name` must match it).
 
-`sync` rules: acts only on agents with an `[assignments]` key (others never pruned); a disabled agent's assignments are reported as skips; literal/glob and refusal rules match install/update/uninstall; plans everything (dry-run) before applying. `--force`/`--prune` are CLI flags.
+`sync` rules: acts only on agents with an `[assignments]` key (others never pruned); assignments naming an agent not configured on this machine are reported as skips (`not configured here`) and never fail the sync; `doctor` lists them as info; literal/glob and refusal rules match install/update/uninstall; plans everything (dry-run) before applying. `--force`/`--prune` are CLI flags.
 
 `doctor` severities: `error` = invalid vault skill, corrupt lock (exit 1); `warn` = modified, missing, orphaned, overlap. Findings go to stdout.
 
@@ -180,7 +190,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 
 ### 9.2 Main screen (mode `MAIN`)
 
-- Grid: a column-header row between two rules, then the skill rows in a scrolling viewport. Columns: `SKILL` (width = longest name, capped; overflow truncated with `…`), then one column per enabled agent (width = max(len(id), 3) + 2; icon centered). The whole grid block is horizontally centered.
+- Grid: a column-header row between two rules, then the skill rows in a scrolling viewport. Columns: `SKILL` (width = longest name, capped; overflow truncated with `…`), then one column per configured agent (width = max(len(id), 3) + 2; icon centered). The whole grid block is horizontally centered.
 - Cursor is per row (skill). No column cursor. Selected row uses the surface color background and a `▶`/`>` marker.
 - Status icon per cell (§9.5) colored by status. Empty cell (pair absent everywhere) = blank.
 - Keys: `↑↓`/`jk` move, `g`/`G` top/bottom, `pgup`/`pgdn`, `enter` open skill screen, `/` filter (substring; `esc` clears), `r` refresh, `a` adopt picker, `n` new skill, `I` import tarball (path prompt), `t` theme picker, `?` help, `q` quit.
@@ -189,7 +199,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 ### 9.3 Skill screen (mode `SKILL`)
 
 - Layout: two bordered panes (rounded border, Overlay color; the focused sidebar's border in Accent), filling the body width with a 1-col outer margin. Pane titles sit in the top border (` AGENTS `, ` <skill name> `).
-- **Sidebar (left)**: width = widest agent row + borders, at least 26. One row per enabled agent: mark (§9.5), cursor marker, agent id, status icon + short status word (`not inst.` for not-installed). Cursor per agent row. `space` toggles a mark; actions apply to marked rows, or to the cursor row if none marked.
+- **Sidebar (left)**: width = widest agent row + borders, at least 26. One row per configured agent: mark (§9.5), cursor marker, agent id, status icon + short status word (`not inst.` for not-installed). Cursor per agent row. `space` toggles a mark; actions apply to marked rows, or to the cursor row if none marked.
 - **Details (right)**, takes the remaining width; scrolls with `pgup`/`pgdn` if taller than the body:
   1. `version <v|->   hash <short>   <valid icon> valid|invalid`
   2. description, wrapped to the pane, max 3 lines (`…` when cut)
@@ -198,7 +208,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
   5. blank line, then `FILES (N)` and a tree of the skill's files using the hashing walk (§4: no dot-paths, no symlinks): a root `SKILL.md` first, then directories as `name/` before files, each sorted by name, drawn like `tree(1)`: connectors `├── `, `└── ` and continuation `│   ` / `    ` (ascii icon set: `|-- `, `` `-- ``, `|   `), connectors in Overlay; each file shows the exec glyph (§9.5) if executable and a right-aligned human size (`B`, `KiB`, `MiB`, one decimal above 1 KiB). Files come from the vault copy; if the skill isn't in the vault, from the cursor agent's installed copy, titled `FILES (N, installed in <agent>)`; if neither exists, `no files`.
 - Narrow terminals (< 70 cols): sidebar stacked above details, both full width.
 - All widths via `lipgloss.Width`; long values truncated with `…`; nothing exceeds the terminal.
-- Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all enabled agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
+- Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all configured agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
 - Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with an error notification.
 
 ### 9.4 Dialogs and modes
@@ -207,7 +217,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 
 Every other dialog (ADOPT, NEW, IMPORT, EXPORT, THEME, HELP) renders as one horizontally centered block, like the grid: block width = widest line, at least 60, at most the terminal width; long values truncated with `…`. Dialogs with an input (NEW, IMPORT, EXPORT) are two thirds of the terminal wide (at least 60, at most the terminal) and the input fills the block.
 
-- `ADOPT`: list of every `unmanaged` (skill, agent, path) across enabled agents; `enter` adopts (force confirm on `ErrNeedsForce`), `esc` back.
+- `ADOPT`: list of every `unmanaged` (skill, agent, path) across configured agents; `enter` adopts (force confirm on `ErrNeedsForce`), `esc` back.
 - `NEW`: multi-line textarea to paste a complete `SKILL.md`. Live validation line under it (valid, or the first problem). `ctrl+s` saves via `ops.Create`; `esc` cancels (confirm if non-empty).
 - `IMPORT` / `EXPORT`: single-line path input with default; `enter` runs; results in the bar.
 - `THEME`: list of themes; moving the cursor previews live; `enter` keeps it for this session, `esc` restores the previous one. Never writes the config file.

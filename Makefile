@@ -22,11 +22,12 @@ $(MOCK)/config.toml:
 	cp -a testdata/targets/. $(MOCK)/targets/
 	printf '%s\n' \
 		'vault = "$(MOCK)/skill-db"' \
-		'[agents.claude]'   'path = "$(MOCK)/targets/claude"' \
-		'[agents.cursor]'   'path = "$(MOCK)/targets/cursor"' \
-		'[agents.pi]'       'path = "$(MOCK)/targets/pi"' \
-		'[agents.opencode]' 'path = "$(MOCK)/targets/opencode"' \
-		'[agents.agents]'   'path = "$(MOCK)/targets/agents"' \
+		'[agents]' \
+		'claude   = "$(MOCK)/targets/claude"' \
+		'cursor   = "$(MOCK)/targets/cursor"' \
+		'pi       = "$(MOCK)/targets/pi"' \
+		'opencode = "$(MOCK)/targets/opencode"' \
+		'agents   = "$(MOCK)/targets/agents"' \
 		> $@
 
 mock-reset:
