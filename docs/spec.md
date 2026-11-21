@@ -21,7 +21,13 @@ vault = "~/sapato-vault"        # default if omitted
 [agents.claude]                 # every agent section is optional
 path = "~/.claude/skills"       # override default path
 enabled = true                  # default true
+
+[ui]
+theme = "catppuccin-mocha"      # see §9.5; default catppuccin-mocha
+icons = "nerd"                  # nerd | unicode | ascii; default nerd
 ```
+
+The global `--icons` and `--theme` flags override `[ui]` for one run. Unknown theme or icon set → error listing the valid names.
 
 `~` is expanded to the user home dir in every path.
 
@@ -130,7 +136,9 @@ Glob vs literal: a skill named literally that hits a hard refusal (invalid on in
 | `sapato uninstall <skill…> -a …` | remove managed skill folder + lock entry. Refuses `unmanaged` (never delete what we don't own) and `modified` unless `--force` |
 | `sapato update [skill…] [-a …]` | re-install every `outdated` skill (default: all skills, all agents). `modified` skipped unless `--force` (reported as skips, never call failures, even for literal names) |
 | `sapato diff <skill> -a <id>` | unified diff vault vs installed copy (file list + per-file text diff) |
-| `sapato import <path-or-git-url> [--name n]` | copy a skill folder into the vault (git URLs: shallow clone to temp dir, optional `--subdir`). Validates first; refuses if name exists unless `--force` |
+| `sapato import <path-or-git-url-or-tarball> [--name n]` | copy a skill folder into the vault (git URLs: shallow clone to temp dir, optional `--subdir`; `*.tar.gz`/`*.tgz`: see §11). Validates first; refuses if name exists unless `--force` |
+| `sapato new [file]` | create a vault skill from a complete `SKILL.md` (file or stdin). Name comes from frontmatter; must be valid; refuses an existing name unless `--force` |
+| `sapato export <skill…> [-o file]` | write a tarball (§11). Default file: `<name>-<version or 8-char hash>.skill.tar.gz` for one skill, `skills-<date>.skill.tar.gz` for several. Invalid skills refused |
 | `sapato adopt <skill> -a <id>` | copy an `unmanaged` target skill into the vault, then record it in that target's lock (it becomes `synced`) |
 | `sapato remove <skill>` | delete skill from vault. Refuses if installed anywhere unless `--force` (installed copies become `orphaned`) |
 | `sapato sync` | apply `[assignments]`: install/update assigned skills; uninstall managed skills no longer assigned (`--prune`, off by default) |
@@ -155,10 +163,57 @@ Exit codes: 0 ok, 1 error, 2 usage error. Errors go to stderr.
 
 ## 9. TUI (Bubble Tea)
 
-- Main view: matrix — rows = skills (vault ∪ found in targets), columns = enabled agents, cells = status glyph/color.
-- Keys: arrows/hjkl move, `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt, `r` refresh, `/` filter, `?` help, `q` quit.
-- Confirmation prompt before any destructive op; `--force`-type ops need explicit confirm.
-- All mutations go through the same `ops` package as the CLI.
+All mutations go through `ops`, exactly like the CLI. Force-overridable refusals (`ops.ErrNeedsForce`, update skip `modified`) always get a distinct force confirmation; plain destructive ops get a plain confirmation.
+
+### 9.1 Layout (every screen)
+
+1. **Header**, centered: the ANSI Shadow `SAPATO` art (exact text in `internal/tui/art.go`, see task 10) in the theme accent, then the tagline `Skills Administration, Packaging & Agent Tool Organization` in subtext. If the terminal is shorter than 30 rows or narrower than the art, use a one-line header: `sapato · <tagline>` (tagline dropped if it doesn't fit).
+2. **Rule** (full width, overlay color).
+3. **Screen body** (below).
+4. **Bottom bar** (full width, 1 row): `[MODE badge] message … right segment`. Mode badge uses the mode color (§9.4). Message = last action result or error (error in red). Right segment = counts and context key hints, truncated from the left of the hints if narrow. With nerd icons, powerline separators (`\ue0b0`, `\ue0b2`) between segments; otherwise ` │ `.
+
+### 9.2 Main screen (mode `MAIN`)
+
+- Grid: a column-header row between two rules, then the skill rows in a scrolling viewport. Columns: `SKILL` (width = longest name, capped; overflow truncated with `…`), then one column per enabled agent (width = max(len(id), 3) + 2; icon centered). The whole grid block is horizontally centered.
+- Cursor is per row (skill). No column cursor. Selected row uses the surface color background and a `▶`/`>` marker.
+- Status icon per cell (§9.5) colored by status. Empty cell (pair absent everywhere) = blank.
+- Keys: `↑↓`/`jk` move, `g`/`G` top/bottom, `pgup`/`pgdn`, `enter` open skill screen, `/` filter (substring; `esc` clears), `r` refresh, `a` adopt picker, `n` new skill, `I` import tarball (path prompt), `t` theme picker, `?` help, `q` quit.
+- Bar right segment: `N skills · N invalid · N need attention` (attention = outdated + modified + orphaned + missing).
+
+### 9.3 Skill screen (mode `SKILL`)
+
+- Info block: name, version (or `-`), short hash, valid/invalid; description (wrapped, max 3 lines); vault path; if invalid, each problem in red.
+- Agent list: one row per enabled agent: marker, agent id, status icon + status word, installed path (if present). Cursor per agent row. `space` toggles a mark; actions apply to marked rows, or to the cursor row if none marked.
+- Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all enabled agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
+- Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with a bar message.
+
+### 9.4 Dialogs and modes
+
+- `ADOPT`: list of every `unmanaged` (skill, agent, path) across enabled agents; `enter` adopts (force confirm on `ErrNeedsForce`), `esc` back.
+- `NEW`: multi-line textarea to paste a complete `SKILL.md`. Live validation line under it (valid, or the first problem). `ctrl+s` saves via `ops.Create`; `esc` cancels (confirm if non-empty).
+- `IMPORT` / `EXPORT`: single-line path input with default; `enter` runs; results in the bar.
+- `THEME`: list of themes; moving the cursor previews live; `enter` keeps it for this session, `esc` restores the previous one. Never writes the config file.
+- `HELP`: keys for the current screen + icon/status legend.
+- Mode badge colors: MAIN=blue/accent, SKILL=green, FILTER=yellow, ADOPT=mauve/purple, NEW=peach/orange, IMPORT/EXPORT=teal/cyan, THEME=pink, HELP=overlay.
+
+### 9.5 Themes and icons
+
+Themes (palettes in `docs/themes.md`): `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha` (default), `dracula`, `dracula-alucard`, `nord`, `nord-light`. Each theme fills the same semantic roles; UI code uses roles only. `NO_COLOR` disables color (layout unchanged).
+
+Icon sets (per status, see §6):
+
+| status | nerd | unicode | ascii |
+|---|---|---|---|
+| synced | `\uf058` | `✔` | `ok` |
+| outdated | `\uf0aa` | `↑` | `up` |
+| modified | `\uf040` | `✎` | `mod` |
+| not-installed | `\uf10c` | `·` | `.` |
+| invalid | `\uf057` | `✖` | `x` |
+| orphaned | `\uf127` | `∅` | `orp` |
+| unmanaged | `\uf059` | `◆` | `?` |
+| missing | `\uf071` | `!` | `!` |
+
+Row marker: nerd `\uf054`, unicode `▶`, ascii `>`. Mark: nerd `\uf14a`, unicode `■`, ascii `*`.
 
 ## 10. Code layout
 
@@ -177,6 +232,12 @@ Libraries: `github.com/spf13/cobra`, `github.com/pelletier/go-toml/v2`, `gopkg.i
 
 `ops` functions take resolved paths (no global state, no reading `$HOME` directly) so tests run against `t.TempDir()`.
 
-## 11. Out of scope (for now)
+## 11. Skill tarballs
+
+- gzip-compressed tar. Top-level entries are skill folders `<name>/…`; one archive may hold several skills. Nothing else at top level (a `sapato-export.json` manifest with `{"format":1,"skills":{name:hash}}` is written on export and ignored on import if absent).
+- Export: files per hashing rules (§4: no dot-paths, no symlinks), modes preserved (0755 for exec, 0644 otherwise), dirs 0755, deterministic order, mtime zero.
+- Import safety: reject absolute paths, `..` components, symlinks/hardlinks/devices, entries outside a top-level skill folder, total uncompressed size > 50 MiB, > 10k entries. Extract to a temp dir, validate every skill, then copy all-or-nothing into the vault (existing names refused unless `--force`; `--name` only allowed for single-skill archives).
+
+## 12. Out of scope (for now)
 
 Symlink install mode, project-scoped targets (`./.claude/skills`), remote vaults/registries.
