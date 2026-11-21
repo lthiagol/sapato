@@ -53,7 +53,7 @@ func (m Model) adoptBody(w int) []string {
 	rows := m.unmanaged()
 	lines := []string{m.styles.bold.Render(truncate("Adopt unmanaged skills into the vault", w)), ""}
 	if len(rows) == 0 {
-		return append(lines, m.styles.dim.Render(truncate("No unmanaged skills in the enabled agents.", w)))
+		return append(lines, m.styles.dim.Render(truncate("No unmanaged skills in the configured agents.", w)))
 	}
 	nameW, agentW := 0, 0
 	for _, r := range rows {

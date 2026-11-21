@@ -4,6 +4,12 @@ package icons
 
 import "sapato/internal/ops"
 
+// namedSet pairs a glyph set with its name.
+type namedSet struct {
+	name string
+	set  Set
+}
+
 // Set is one glyph set. Status has a glyph for each of the eight states. Info
 // marks an info notification and Exec an executable file. Sets carry no separators.
 type Set struct {
@@ -13,9 +19,9 @@ type Set struct {
 	Rule         string
 }
 
-// sets holds the glyph sets by name. Names match config.IconNames.
-var sets = map[string]Set{
-	"nerd": {
+// sets lists the glyph sets in UI order. Names match config.IconNames.
+var sets = []namedSet{
+	{name: "nerd", set: Set{
 		Status: map[ops.State]string{
 			ops.Synced:       "\uf058",
 			ops.Outdated:     "\uf0aa",
@@ -31,8 +37,8 @@ var sets = map[string]Set{
 		Exec:   "\uf013",
 		Info:   "\uf05a",
 		Rule:   "─",
-	},
-	"unicode": {
+	}},
+	{name: "unicode", set: Set{
 		Status: map[ops.State]string{
 			ops.Synced:       "✔",
 			ops.Outdated:     "↑",
@@ -48,8 +54,8 @@ var sets = map[string]Set{
 		Exec:   "⚙",
 		Info:   "ℹ",
 		Rule:   "─",
-	},
-	"ascii": {
+	}},
+	{name: "ascii", set: Set{
 		Status: map[ops.State]string{
 			ops.Synced:       "ok",
 			ops.Outdated:     "up",
@@ -65,12 +71,25 @@ var sets = map[string]Set{
 		Exec:   "x",
 		Info:   "i",
 		Rule:   "-",
-	},
+	}},
 }
 
 // ByName returns the glyph set called name: "nerd", "unicode" or "ascii". ok is
 // false for any other name.
 func ByName(name string) (Set, bool) {
-	set, ok := sets[name]
-	return set, ok
+	for _, s := range sets {
+		if s.name == name {
+			return s.set, true
+		}
+	}
+	return Set{}, false
+}
+
+// Names returns the glyph set names in UI order.
+func Names() []string {
+	names := make([]string, len(sets))
+	for i, s := range sets {
+		names[i] = s.name
+	}
+	return names
 }

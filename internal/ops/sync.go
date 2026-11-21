@@ -22,27 +22,21 @@ type SyncOptions struct {
 // agent with an assignment entry gets its assigned skills installed when missing
 // and updated when outdated, through Install and Update. With Prune its managed
 // skills that are not assigned are uninstalled, through Uninstall. An assignment
-// key must be a configured agent id. A disabled agent is left alone and its
-// assigned skills are reported as skips. Every check runs before the first
-// change, so a refusal changes nothing.
+// that names an agent not in agents is skipped as "not configured here", never an
+// error. Every check runs before the first change, so a refusal changes nothing.
 func Sync(v *vault.Vault, agents []config.Agent, opts SyncOptions) ([]Action, error) {
 	skills, err := v.Skills()
 	if err != nil {
 		return nil, fmt.Errorf("sync: %w", err)
 	}
-	for _, id := range slices.Sorted(maps.Keys(v.Assignments)) {
-		if !slices.ContainsFunc(agents, func(a config.Agent) bool { return a.ID == id }) {
-			return nil, fmt.Errorf("sync: assignments name unknown agent %q", id)
-		}
-	}
 
-	var enabled []config.Agent
+	var targets []config.Agent
 	for _, a := range agents {
-		if _, ok := v.Assignments[a.ID]; ok && a.Enabled {
-			enabled = append(enabled, a)
+		if _, ok := v.Assignments[a.ID]; ok {
+			targets = append(targets, a)
 		}
 	}
-	rows, err := Status(v, enabled, Filter{})
+	rows, err := Status(v, targets, Filter{})
 	if err != nil {
 		return nil, fmt.Errorf("sync: %w", err)
 	}
@@ -56,28 +50,18 @@ func Sync(v *vault.Vault, agents []config.Agent, opts SyncOptions) ([]Action, er
 
 	var plan []Action
 	var steps []func(Options) ([]Action, error)
-	for _, a := range agents {
-		patterns, ok := v.Assignments[a.ID]
-		if !ok {
-			continue
-		}
-		valid, invalid, err := expandAssignment(patterns, skills)
+	for _, a := range targets {
+		valid, invalid, err := expandAssignment(v.Assignments[a.ID], skills)
 		if err != nil {
 			return nil, fmt.Errorf("sync %s: %w", a.ID, err)
-		}
-		if !a.Enabled {
-			for _, name := range slices.Concat(valid, invalid) {
-				plan = append(plan, Action{Op: OpSkip, Skill: name, Agent: a.ID, Reason: "agent disabled"})
-			}
-			continue
 		}
 		for _, name := range invalid {
 			plan = append(plan, Action{Op: OpSkip, Skill: name, Agent: a.ID, Reason: "invalid"})
 		}
 
-		assigned := make(map[string]bool, len(valid)+len(invalid))
+		assignedNames := make(map[string]bool, len(valid)+len(invalid))
 		for _, name := range slices.Concat(valid, invalid) {
-			assigned[name] = true
+			assignedNames[name] = true
 		}
 		var toInstall, toUpdate, toPrune []string
 		for _, name := range valid {
@@ -90,7 +74,7 @@ func Sync(v *vault.Vault, agents []config.Agent, opts SyncOptions) ([]Action, er
 		}
 		if opts.Prune {
 			for _, name := range slices.Sorted(maps.Keys(states[a.ID])) {
-				if assigned[name] {
+				if assignedNames[name] {
 					continue
 				}
 				switch states[a.ID][name] {
@@ -112,6 +96,12 @@ func Sync(v *vault.Vault, agents []config.Agent, opts SyncOptions) ([]Action, er
 		}
 	}
 
+	for _, id := range unconfigured(v.Assignments, agents) {
+		for _, pattern := range v.Assignments[id] {
+			plan = append(plan, Action{Op: OpSkip, Skill: pattern, Agent: id, Reason: "not configured here"})
+		}
+	}
+
 	for _, step := range steps {
 		actions, err := step(Options{Force: opts.Force, DryRun: true})
 		if err != nil {
@@ -128,6 +118,17 @@ func Sync(v *vault.Vault, agents []config.Agent, opts SyncOptions) ([]Action, er
 		}
 	}
 	return plan, nil
+}
+
+// unconfigured returns the sorted assignment keys that name no agent in agents.
+func unconfigured(assignments map[string][]string, agents []config.Agent) []string {
+	var ids []string
+	for _, id := range slices.Sorted(maps.Keys(assignments)) {
+		if !slices.ContainsFunc(agents, func(a config.Agent) bool { return a.ID == id }) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // expandAssignment returns the names of the vault skills that patterns select,

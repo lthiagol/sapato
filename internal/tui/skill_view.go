@@ -12,7 +12,7 @@ import (
 	"sapato/internal/ops"
 )
 
-// The skill screen of spec §9.3: a sidebar with one row per enabled agent, and
+// The skill screen of spec §9.3: a sidebar with one row per configured agent, and
 // beside it the details of the open skill for the agent under the cursor. Below
 // narrowW columns the sidebar stacks above the details.
 
@@ -130,7 +130,7 @@ func shortWord(s ops.State) string {
 	return string(s)
 }
 
-// sideLines lists one row per enabled agent, each cut and padded to w columns.
+// sideLines lists one row per configured agent, each cut and padded to w columns.
 func (m Model) sideLines(w int) []string {
 	idW, wordW := m.sideWidths()
 	lines := make([]string, len(m.agents))
@@ -219,7 +219,7 @@ func (m Model) detailLines(w int) []string {
 
 	lines = append(lines, "")
 	if len(m.agents) == 0 {
-		add(seg{"No enabled agents. Enable one in the config.", dim})
+		add(seg{"No agents configured. Add one under [agents] in the config.", dim})
 	} else {
 		a := m.agents[m.cur]
 		glyph, word, style := " ", "absent", dim

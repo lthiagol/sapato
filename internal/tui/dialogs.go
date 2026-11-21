@@ -77,7 +77,7 @@ func (m Model) openAdopt() Model {
 	return m
 }
 
-// unmanaged lists the unmanaged copies in the enabled agents, by skill name and
+// unmanaged lists the unmanaged copies in the configured agents, by skill name and
 // then agent order. It lists every name, whatever the grid filter is.
 func (m Model) unmanaged() []unmanagedRow {
 	var rows []unmanagedRow

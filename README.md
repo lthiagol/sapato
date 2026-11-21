@@ -27,7 +27,7 @@ sapato             # TUI
 
 ## Config
 
-`~/.config/sapato/config.toml` (or `--config <path>`). Everything is optional.
+`~/.config/sapato/config.toml` (or `--config <path>`). Create a commented starter with `sapato config init`; the TUI offers to create it (and the vault) on first launch. Without a config, the built-in agents below are used.
 
 ```toml
 vault = "~/sapato-vault"
@@ -36,20 +36,17 @@ vault = "~/sapato-vault"
 theme = "catppuccin-mocha"   # catppuccin-{latte,frappe,macchiato,mocha}, dracula, dracula-alucard, nord, nord-light
 icons = "nerd"               # nerd | unicode | ascii (use unicode if glyphs show as boxes)
 
-[agents.cursor]
-path = "~/.cursor/skills"   # override a default path
-enabled = true
+[agents]                     # name = path; order here = order in the UI
+claude   = "~/.claude/skills"
+cursor   = "~/.cursor/skills"
+pi       = "~/.pi/agent/skills"
+opencode = "~/.config/opencode/skills"
+agents   = "~/.agents/skills"
+# codex  = "~/.codex/skills"                                         # comment a line to stop managing it
+# work   = { path = "~/work/.claude/skills", reads = ["~/.agents/skills"] }
 ```
 
-| agent      | default path                |
-|------------|-----------------------------|
-| `claude`   | `~/.claude/skills`          |
-| `cursor`   | `~/.cursor/skills`          |
-| `pi`       | `~/.pi/agent/skills`        |
-| `opencode` | `~/.config/opencode/skills` |
-| `agents`   | `~/.agents/skills`          |
-
-Two enabled agents can't share a path.
+Every agent stores skills the same way (`<path>/<skill>/…`), so supporting a new agent is one line. `reads` lists extra dirs an agent also reads, so `doctor` can flag skills it would see twice (built-ins already know theirs). Two agents can't share a path.
 
 ## Vault format
 
@@ -114,6 +111,7 @@ Each install writes `<agent dir>/.sapato-lock.json`. Status compares the vault, 
 | command | does |
 |---------|------|
 | `config` | print the resolved config |
+| `config init [--force]` | write a commented starter config to the `--config` path |
 | `init [path]` | create a vault |
 | `list` | list vault skills and validity |
 | `status [skill…] [-a id…] [--json]` | skill × agent status |

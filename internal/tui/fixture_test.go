@@ -25,7 +25,7 @@ func fixtureModel(t *testing.T) (Model, string, string) {
 		t.Fatal(err)
 	}
 	th, set := testLook(t)
-	m := testModel(opsBackend{v: v}, []config.Agent{{ID: "claude", Path: claudeDir, Enabled: true}}, th, set, true)
+	m := testModel(opsBackend{v: v}, []config.Agent{{ID: "claude", Path: claudeDir}}, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	return m, vaultDir, claudeDir
 }

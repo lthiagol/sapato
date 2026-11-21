@@ -17,7 +17,7 @@ func manageSetup(t *testing.T) (cfgPath, vaultDir, claudeDir string) {
 	vaultDir = testfixtures.CopyTree(t, filepath.Join(testfixtures.Root(), "skill-db"))
 	claudeDir = testfixtures.CopyTree(t, filepath.Join(testfixtures.Root(), "targets", "claude"))
 	cfgPath = filepath.Join(t.TempDir(), "config.toml")
-	content := "vault = \"" + vaultDir + "\"\n\n[agents.claude]\npath = \"" + claudeDir + "\"\n"
+	content := "vault = \"" + vaultDir + "\"\n\n[agents]\nclaude = \"" + claudeDir + "\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -400,7 +400,7 @@ func TestInstallLock(t *testing.T) {
 
 func TestInstallCreatesMissingTargetDir(t *testing.T) {
 	v := fixtureVault(t)
-	agent := config.Agent{ID: "pi", Path: filepath.Join(t.TempDir(), "new", "skills"), Enabled: true}
+	agent := config.Agent{ID: "pi", Path: filepath.Join(t.TempDir(), "new", "skills")}
 	if _, err := Install(v, []config.Agent{agent}, []string{"mocked-skill-00001"}, Options{}); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -412,7 +412,7 @@ func TestInstallCreatesMissingTargetDir(t *testing.T) {
 func TestInstallDryRunChangesNothing(t *testing.T) {
 	v := fixtureVault(t)
 	claude := fixtureAgent(t, "claude")
-	absent := config.Agent{ID: "pi", Path: filepath.Join(t.TempDir(), "absent"), Enabled: true}
+	absent := config.Agent{ID: "pi", Path: filepath.Join(t.TempDir(), "absent")}
 	before := snapshot(t, claude.Path)
 
 	actions, err := Install(v, []config.Agent{claude, absent}, []string{"mocked-skill-00004", "mocked-skill-00001"}, Options{DryRun: true})

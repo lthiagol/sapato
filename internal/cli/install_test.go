@@ -23,7 +23,7 @@ func TestInstallCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("install with --all copies into enabled agents", func(t *testing.T) {
+	t.Run("install with --all copies into configured agents", func(t *testing.T) {
 		code, out, stderr := runCLI("--config", cfgPath, "install", "mocked-skill-00004", "--all")
 		if code != 0 {
 			t.Fatalf("exit = %d, stderr %q", code, stderr)

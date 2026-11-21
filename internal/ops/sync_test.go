@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -35,23 +34,26 @@ func syncVault(t *testing.T, assignments string, valid, invalid []string) *vault
 	return v
 }
 
-// syncAgents loads the five built-in agents with their default paths under a
-// temp home. Only claude's enabled flag can be set; the others are enabled.
-func syncAgents(t *testing.T, claudeEnabled bool) []config.Agent {
+// syncAgents returns the five built-in agents with their default paths under a
+// temp home, whose dirs exist, except the agents named in left out. Those are not
+// configured.
+func syncAgents(t *testing.T, leftOut ...string) []config.Agent {
 	t.Helper()
 	home := t.TempDir()
-	cfgPath := filepath.Join(home, "config.toml")
-	writeTestFile(t, cfgPath, "[agents.claude]\nenabled = "+strconv.FormatBool(claudeEnabled)+"\n")
-	cfg, err := config.Load(cfgPath, home)
+	cfg, err := config.Load("", home)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var agents []config.Agent
 	for _, a := range cfg.Agents {
 		if err := os.MkdirAll(a.Path, 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if !slices.Contains(leftOut, a.ID) {
+			agents = append(agents, a)
+		}
 	}
-	return cfg.Agents
+	return agents
 }
 
 // agentNamed returns the agent with id from agents.
@@ -115,16 +117,16 @@ func installFor(t *testing.T, v *vault.Vault, agent config.Agent, names ...strin
 
 func TestSync(t *testing.T) {
 	tests := []struct {
-		name        string
-		assignments string
-		valid       []string
-		invalid     []string
-		disabled    bool // claude is disabled
-		prep        func(t *testing.T, v *vault.Vault, agents []config.Agent)
-		opts        SyncOptions
-		want        []string
-		wantErr     string
-		wantAfter   map[string]State // "agent skill" -> status after a real run; "" when no row
+		name          string
+		assignments   string
+		valid         []string
+		invalid       []string
+		notConfigured []string // agents left out of the config
+		prep          func(t *testing.T, v *vault.Vault, agents []config.Agent)
+		opts          SyncOptions
+		want          []string
+		wantErr       string
+		wantAfter     map[string]State // "agent skill" -> status after a real run; "" when no row
 	}{
 		{
 			name:        "installs literal names and globs",
@@ -243,10 +245,16 @@ func TestSync(t *testing.T) {
 			valid:       []string{"code-review"},
 		},
 		{
-			name:        "unknown agent id is an error",
+			name:        "assignment for an agent not configured here is skipped",
 			assignments: "nope = [\"code-review\"]\n",
 			valid:       []string{"code-review"},
-			wantErr:     `assignments name unknown agent "nope"`,
+			want:        []string{"skip code-review in nope: not configured here"},
+		},
+		{
+			name:        "unconfigured agent with a malformed glob is skipped, not an error",
+			assignments: "nope = [\"[x\"]\n",
+			valid:       []string{"code-review"},
+			want:        []string{"skip [x in nope: not configured here"},
 		},
 		{
 			name:        "malformed glob is an error",
@@ -255,12 +263,11 @@ func TestSync(t *testing.T) {
 			wantErr:     "bad skill pattern",
 		},
 		{
-			name:        "disabled agent is skipped",
-			assignments: "claude = [\"code-review\"]\n",
-			valid:       []string{"code-review"},
-			disabled:    true,
-			want:        []string{"skip code-review in claude: agent disabled"},
-			wantAfter:   map[string]State{"claude code-review": NotInstalled},
+			name:          "agent not configured here is skipped",
+			assignments:   "claude = [\"code-review\"]\n",
+			valid:         []string{"code-review"},
+			notConfigured: []string{"claude"},
+			want:          []string{"skip code-review in claude: not configured here"},
 		},
 		{
 			name:        "agent without an assignment entry is untouched by prune",
@@ -371,7 +378,7 @@ func TestSync(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := syncVault(t, tt.assignments, tt.valid, tt.invalid)
-			agents := syncAgents(t, !tt.disabled)
+			agents := syncAgents(t, tt.notConfigured...)
 			if tt.prep != nil {
 				tt.prep(t, v, agents)
 			}
@@ -435,15 +442,15 @@ func checkAfter(t *testing.T, v *vault.Vault, agents []config.Agent, want map[st
 	}
 }
 
-func TestSyncSkipsDisabledAgentAndInstallsTheRest(t *testing.T) {
+func TestSyncSkipsUnconfiguredAgentAndInstallsTheRest(t *testing.T) {
 	v := syncVault(t, "claude = [\"code-review\"]\nagents = [\"code-review\"]\n", []string{"code-review"}, nil)
-	agents := syncAgents(t, false)
+	agents := syncAgents(t, "claude")
 
 	actions, err := Sync(v, agents, SyncOptions{Options: Options{DryRun: true}})
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
-	want := []string{"install code-review in agents", "skip code-review in claude: agent disabled"}
+	want := []string{"install code-review in agents", "skip code-review in claude: not configured here"}
 	if got := planLines(actions); !slices.Equal(got, sortedCopy(want)) {
 		t.Errorf("plan = %v, want %v", got, sortedCopy(want))
 	}
@@ -451,7 +458,7 @@ func TestSyncSkipsDisabledAgentAndInstallsTheRest(t *testing.T) {
 
 func TestSyncDoesNothingWithoutAssignments(t *testing.T) {
 	v := syncVault(t, "", []string{"code-review"}, nil)
-	agents := syncAgents(t, true)
+	agents := syncAgents(t)
 	installFor(t, v, agents[0], "code-review")
 	before := snapshotAll(t, v, agents)
 

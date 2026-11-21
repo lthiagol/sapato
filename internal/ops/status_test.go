@@ -126,7 +126,7 @@ func fixtureValidity(t *testing.T, v *vault.Vault) map[string]bool {
 // fixtureAgent copies targets/<id> and points an agent at it.
 func fixtureAgent(t *testing.T, id string) config.Agent {
 	t.Helper()
-	return config.Agent{ID: id, Path: testfixtures.CopyTree(t, filepath.Join(testfixtures.Root(), "targets", id)), Enabled: true}
+	return config.Agent{ID: id, Path: testfixtures.CopyTree(t, filepath.Join(testfixtures.Root(), "targets", id))}
 }
 
 func TestStatusFixtures(t *testing.T) {
@@ -245,7 +245,7 @@ func TestStatusFilter(t *testing.T) {
 
 func TestStatusMissingTargetDir(t *testing.T) {
 	v := fixtureVault(t)
-	agent := config.Agent{ID: "pi", Path: filepath.Join(t.TempDir(), "absent"), Enabled: true}
+	agent := config.Agent{ID: "pi", Path: filepath.Join(t.TempDir(), "absent")}
 
 	rows, err := Status(v, []config.Agent{agent}, Filter{})
 	if err != nil {
@@ -306,9 +306,9 @@ func TestStatusErrors(t *testing.T) {
 
 func TestSelectAgents(t *testing.T) {
 	agents := []config.Agent{
-		{ID: "claude", Path: "/c", Enabled: true},
-		{ID: "cursor", Path: "/u", Enabled: false},
-		{ID: "pi", Path: "/p", Enabled: true},
+		{ID: "claude", Path: "/c"},
+		{ID: "cursor", Path: "/u"},
+		{ID: "pi", Path: "/p"},
 	}
 	tests := []struct {
 		name    string
@@ -316,9 +316,9 @@ func TestSelectAgents(t *testing.T) {
 		want    []string
 		wantErr string
 	}{
-		{name: "no ids selects enabled agents", ids: nil, want: []string{"claude", "pi"}},
+		{name: "no ids selects every configured agent", ids: nil, want: []string{"claude", "cursor", "pi"}},
 		{name: "explicit ids keep config order", ids: []string{"pi", "claude"}, want: []string{"claude", "pi"}},
-		{name: "explicit id selects a disabled agent", ids: []string{"cursor"}, want: []string{"cursor"}},
+		{name: "explicit id selects any configured agent", ids: []string{"cursor"}, want: []string{"cursor"}},
 		{name: "repeated id selected once", ids: []string{"pi", "pi"}, want: []string{"pi"}},
 		{name: "unknown id", ids: []string{"windsurf"}, wantErr: `unknown agent "windsurf"`},
 	}

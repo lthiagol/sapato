@@ -293,14 +293,14 @@ func skillScreenModel(t *testing.T, w, h int) Model {
 			Problems:    []string{strings.Repeat("the problem text runs on for a long time ", 3)},
 		}},
 	}
-	agents := []config.Agent{{ID: "claude", Path: longPath, Enabled: true}, cursorAgent}
+	agents := []config.Agent{{ID: "claude", Path: longPath}, cursorAgent}
 	return press(t, sized(t, loaded(t, b, agents), w, h), "enter")
 }
 
 func TestSkillScreenKeepsTheCursorAgentInView(t *testing.T) {
 	var agents []config.Agent
 	for i := range 20 {
-		agents = append(agents, config.Agent{ID: fmt.Sprintf("agent-%02d", i), Path: fmt.Sprintf("/agents/%02d", i), Enabled: true})
+		agents = append(agents, config.Agent{ID: fmt.Sprintf("agent-%02d", i), Path: fmt.Sprintf("/agents/%02d", i)})
 	}
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "agent-00", ops.Synced)}}
 	m := press(t, sized(t, loaded(t, b, agents), 80, 24), "enter")

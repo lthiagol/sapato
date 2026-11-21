@@ -48,6 +48,9 @@ func TestThemeNamesAreUniqueAndMatchConfig(t *testing.T) {
 	if !slices.Equal(names, config.ThemeNames()) {
 		t.Errorf("All() names = %v, want %v", names, config.ThemeNames())
 	}
+	if !slices.Equal(Names(), config.ThemeNames()) {
+		t.Errorf("Names() = %v, want %v", Names(), config.ThemeNames())
+	}
 	for _, name := range names {
 		if th, ok := ByName(name); !ok || th.Name != name {
 			t.Errorf("ByName(%q) = %q, %t", name, th.Name, ok)

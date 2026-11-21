@@ -8,20 +8,14 @@ import (
 	"sapato/internal/config"
 )
 
-// SelectAgents returns the agents named by ids, in config order. An id is
-// selected even when its agent is disabled. With no ids it returns the enabled
-// agents. An unknown id is an error.
+// SelectAgents returns the agents named by ids, in config order. With no ids it
+// returns every configured agent. An unknown id is an error.
 func SelectAgents(agents []config.Agent, ids []string) ([]config.Agent, error) {
-	var selected []config.Agent
 	if len(ids) == 0 {
-		for _, a := range agents {
-			if a.Enabled {
-				selected = append(selected, a)
-			}
-		}
-		return selected, nil
+		return slices.Clone(agents), nil
 	}
 
+	var selected []config.Agent
 	for _, id := range ids {
 		if !slices.ContainsFunc(agents, func(a config.Agent) bool { return a.ID == id }) {
 			return nil, fmt.Errorf("unknown agent %q", id)

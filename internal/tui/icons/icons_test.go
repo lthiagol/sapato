@@ -77,6 +77,9 @@ func TestSetNamesMatchConfig(t *testing.T) {
 	if !slices.Equal(config.IconNames(), []string{"nerd", "unicode", "ascii"}) {
 		t.Errorf("IconNames() = %v", config.IconNames())
 	}
+	if !slices.Equal(Names(), config.IconNames()) {
+		t.Errorf("Names() = %v, want %v", Names(), config.IconNames())
+	}
 }
 
 // TestRule checks the glyph that draws the rules. No set carries separators.

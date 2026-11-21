@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"text/tabwriter"
 
@@ -11,11 +12,12 @@ import (
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
+	"sapato/internal/tui"
 	"sapato/internal/vault"
 )
 
 func newConfigCmd(opts *globalOpts) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Print the resolved config",
 		Args:  usageArgs(cobra.NoArgs),
@@ -25,15 +27,49 @@ func newConfigCmd(opts *globalOpts) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "vault: %s\n\n", cfg.Vault)
-			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "AGENT\tENABLED\tPATH")
-			for _, a := range cfg.Agents {
-				fmt.Fprintf(w, "%s\t%s\t%s\n", a.ID, yesNo(a.Enabled), a.Path)
+			fmt.Fprintf(out, "vault: %s\ntheme: %s\nicons: %s\n\n", cfg.Vault, cfg.UI.Theme, cfg.UI.Icons)
+			if err := printAgents(out, cfg); err != nil {
+				return err
 			}
-			return w.Flush()
+			switch {
+			case !cfg.FileExists:
+				fmt.Fprintf(out, "\nnote: no config file at %s; built-in agents are in use. sapato config init writes one.\n", cfg.Path)
+			case cfg.DefaultAgents:
+				fmt.Fprintf(out, "\nnote: %s has no [agents] table; built-in agents are in use.\n", cfg.Path)
+			}
+			return nil
 		},
 	}
+	cmd.AddCommand(newConfigInitCmd(opts))
+	return cmd
+}
+
+func newConfigInitCmd(opts *globalOpts) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Write a commented starter config to the --config path",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			out := cmd.OutOrStdout()
+			if opts.dryRun {
+				fmt.Fprint(out, tui.StarterConfig())
+				return nil
+			}
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("find home dir: %w", err)
+			}
+			path := config.Path(opts.configPath, home)
+			if err := tui.WriteStarterConfig(path, force); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "wrote config %s\n", path)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing config file")
+	return cmd
 }
 
 func newInitCmd(opts *globalOpts) *cobra.Command {
@@ -103,11 +139,15 @@ func newListCmd(opts *globalOpts) *cobra.Command {
 	}
 }
 
-func yesNo(b bool) string {
-	if b {
-		return "yes"
+// printAgents prints the configured agents in config order, with their path and
+// the dirs they also read.
+func printAgents(out io.Writer, cfg config.Config) error {
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "AGENT\tPATH\tALSO READS")
+	for _, a := range cfg.Agents {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", a.ID, a.Path, orDash(strings.Join(a.ReadDirs, ", ")))
 	}
-	return "no"
+	return w.Flush()
 }
 
 func orDash(s string) string {
@@ -159,7 +199,7 @@ func newStatusCmd(opts *globalOpts) *cobra.Command {
 			return printStatusTable(out, agents, rows)
 		},
 	}
-	cmd.Flags().StringArrayVarP(&agentIDs, "agent", "a", nil, "agent to show, repeatable (default: enabled agents)")
+	cmd.Flags().StringArrayVarP(&agentIDs, "agent", "a", nil, "agent to show, repeatable (default: all configured agents)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print rows as JSON")
 	return cmd
 }

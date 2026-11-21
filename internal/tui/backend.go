@@ -32,7 +32,7 @@ type Backend interface {
 }
 
 // opsBackend calls the ops package on one vault. agents are every configured
-// agent, enabled or not, since a removal refuses while any of them has a copy.
+// agent, since a removal refuses while any of them has a copy.
 type opsBackend struct {
 	v      *vault.Vault
 	agents []config.Agent

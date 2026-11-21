@@ -70,11 +70,11 @@ func TestSyncCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown agent in assignments is an error", func(t *testing.T) {
+	t.Run("assignment for an agent not configured here is skipped", func(t *testing.T) {
 		cfgPath, _, _ := syncSetup(t, "nope = [\"code-review\"]\n", "code-review")
-		code, _, stderr := runCLI("--config", cfgPath, "sync")
-		if code != 1 || !strings.Contains(stderr, `unknown agent "nope"`) {
-			t.Errorf("exit = %d, stderr %q", code, stderr)
+		code, out, stderr := runCLI("--config", cfgPath, "sync")
+		if code != 0 || out != "skip code-review in nope: not configured here\n" {
+			t.Errorf("exit = %d, output %q, stderr %q", code, out, stderr)
 		}
 	})
 

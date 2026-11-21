@@ -156,7 +156,7 @@ func (m Model) mainBody() []string {
 	lines := []string{pad + m.headerRow(nameW, colW), m.rule()}
 	switch {
 	case len(m.agents) == 0:
-		lines = append(lines, pad+m.styles.dim.Render("No enabled agents. Enable one in the config."))
+		lines = append(lines, pad+m.styles.dim.Render("No agents configured. Add one under [agents] in the config."))
 	case len(m.skills) == 0:
 		lines = append(lines, pad+m.styles.dim.Render("No skills in the vault or the agent folders."))
 	}
@@ -255,6 +255,20 @@ func (m Model) confirmBody(w int) []string {
 	if p.act.op == opDiscard {
 		return []string{
 			m.styles.bold.Render(truncate("Discard the new skill?", w)),
+			"",
+			m.styles.dim.Render(truncate(effect(p.act), w)),
+		}
+	}
+	if p.act.op == opConfigInit {
+		return []string{
+			m.styles.bold.Render(truncate("No config found. Create "+p.act.path+"?", w)),
+			"",
+			m.styles.dim.Render(truncate(effect(p.act), w)),
+		}
+	}
+	if p.act.op == opVaultInit {
+		return []string{
+			m.styles.bold.Render(truncate("No vault at "+p.act.path+". Create it?", w)),
 			"",
 			m.styles.dim.Render(truncate(effect(p.act), w)),
 		}
@@ -522,6 +536,10 @@ func subject(a action) string {
 		return "create " + a.skill
 	case ops.OpImport:
 		return "import " + a.src
+	case opConfigInit:
+		return "create config " + a.path
+	case opVaultInit:
+		return "create vault " + a.path
 	}
 	return fmt.Sprintf("%s %s in %s", a.op, a.skill, agentIDs(a.agents))
 }
@@ -532,6 +550,10 @@ func effect(a action) string {
 	switch a.op {
 	case opDiscard:
 		return "The text you wrote is lost."
+	case opConfigInit:
+		return "Writes a starter config with the built-in agents. n keeps the defaults for this run."
+	case opVaultInit:
+		return "Creates sapato.toml and skills/ there. Any other key exits."
 	case ops.OpRemove:
 		if a.force {
 			return "Deletes the vault copy; installed copies become orphaned."

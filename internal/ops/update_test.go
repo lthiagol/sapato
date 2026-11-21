@@ -63,7 +63,7 @@ func TestUpdateSelection(t *testing.T) {
 			wantErr: `no skill matches "no-such-skill"`,
 		},
 		{
-			name:    "no enabled agents",
+			name:    "no agents",
 			agents:  []config.Agent{},
 			wantErr: "no agents selected",
 		},

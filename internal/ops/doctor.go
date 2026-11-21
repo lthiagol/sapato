@@ -17,6 +17,7 @@ type Severity string
 const (
 	SeverityError Severity = "error"
 	SeverityWarn  Severity = "warn"
+	SeverityInfo  Severity = "info"
 )
 
 // FindingKind names what a Finding is about.
@@ -29,6 +30,7 @@ const (
 	FindingModified     FindingKind = "modified"
 	FindingMissing      FindingKind = "missing"
 	FindingOrphaned     FindingKind = "orphaned"
+	FindingNotHere      FindingKind = "not-configured-here"
 )
 
 // Finding is one problem Doctor reports.
@@ -43,8 +45,9 @@ type Finding struct {
 // Doctor checks the vault and the agents' target dirs and reports what is wrong
 // (spec §7). Invalid vault skills and corrupt locks are errors. Modified,
 // missing and orphaned entries, and skills visible to one agent from two dirs,
-// are warnings. A corrupt lock is reported and its agent is not checked further.
-// Doctor changes nothing.
+// are warnings. Assignments that name an agent not configured here are info. A
+// corrupt lock is reported and its agent is not checked further. Doctor changes
+// nothing.
 func Doctor(v *vault.Vault, agents []config.Agent) ([]Finding, error) {
 	skills, err := v.Skills()
 	if err != nil {
@@ -91,6 +94,15 @@ func Doctor(v *vault.Vault, agents []config.Agent) ([]Finding, error) {
 			Agent:    r.Agent,
 			Skill:    r.Skill,
 			Message:  fmt.Sprintf("%s in %s: %s", r.Skill, r.Agent, msg),
+		})
+	}
+
+	for _, id := range unconfigured(v.Assignments, agents) {
+		findings = append(findings, Finding{
+			Severity: SeverityInfo,
+			Kind:     FindingNotHere,
+			Agent:    id,
+			Message:  fmt.Sprintf("assignments for %s: not configured here, skipped by sync", id),
 		})
 	}
 

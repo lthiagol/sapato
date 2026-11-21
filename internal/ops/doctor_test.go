@@ -120,7 +120,7 @@ func TestDoctor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := syncVault(t, "", tt.valid, tt.invalid)
-			agents := syncAgents(t, true)
+			agents := syncAgents(t)
 			if tt.prep != nil {
 				tt.prep(t, v, agents)
 			}
@@ -145,10 +145,24 @@ func TestDoctor(t *testing.T) {
 	}
 }
 
+func TestDoctorNotConfiguredAssignmentIsInfo(t *testing.T) {
+	v := syncVault(t, "windsurf = [\"code-review\"]\n", []string{"code-review"}, nil)
+	agents := syncAgents(t)
+
+	findings, err := Doctor(v, agents)
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+	want := []string{"info not-configured-here windsurf -"}
+	if got := findingLines(findings); !slices.Equal(got, want) {
+		t.Errorf("findings = %v, want %v", got, want)
+	}
+}
+
 func TestDoctorOverlapUsesFixedReadDirs(t *testing.T) {
 	t.Run("cursor path that is a symlink to its read dir is not an overlap", func(t *testing.T) {
 		v := syncVault(t, "", []string{"code-review"}, nil)
-		agents := syncAgents(t, true)
+		agents := syncAgents(t)
 		claude := agentNamed(t, agents, "claude")
 		cursor := agentNamed(t, agents, "cursor")
 		installFor(t, v, claude, "code-review")
@@ -170,7 +184,7 @@ func TestDoctorOverlapUsesFixedReadDirs(t *testing.T) {
 
 	t.Run("read dirs that resolve to one dir are reported once", func(t *testing.T) {
 		v := syncVault(t, "", []string{"code-review"}, nil)
-		agents := syncAgents(t, true)
+		agents := syncAgents(t)
 		claude := agentNamed(t, agents, "claude")
 		agentsDir := agentNamed(t, agents, "agents")
 		opencode := agentNamed(t, agents, "opencode")
@@ -197,7 +211,7 @@ func TestDoctorOverlapUsesFixedReadDirs(t *testing.T) {
 		home := t.TempDir()
 		custom := filepath.Join(t.TempDir(), "custom-claude")
 		cfgPath := filepath.Join(home, "config.toml")
-		writeTestFile(t, cfgPath, "[agents.claude]\npath = \""+custom+"\"\n")
+		writeTestFile(t, cfgPath, "[agents]\nclaude = \""+custom+"\"\ncursor = \"~/.cursor/skills\"\n")
 		cfg, err := config.Load(cfgPath, home)
 		if err != nil {
 			t.Fatal(err)

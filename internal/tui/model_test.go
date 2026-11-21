@@ -167,8 +167,8 @@ func (f *fakeBackend) LockEntry(agentDir, skill string) (target.LockEntry, bool,
 }
 
 var (
-	claude      = config.Agent{ID: "claude", Path: "/agents/claude", Enabled: true}
-	cursorAgent = config.Agent{ID: "cursor", Path: "/agents/cursor", Enabled: true}
+	claude      = config.Agent{ID: "claude", Path: "/agents/claude"}
+	cursorAgent = config.Agent{ID: "cursor", Path: "/agents/cursor"}
 )
 
 // idList returns the IDs of agents, in order.

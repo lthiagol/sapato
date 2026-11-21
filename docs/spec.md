@@ -37,7 +37,7 @@ agents   = "~/.agents/skills"
 - Names match `^[a-z][a-z0-9-]{0,31}$`. Order = order of the lines in the file (must be preserved when parsing). Two agents may not share a path (after `~` expansion and Clean).
 - **No `[agents]` table (or no config file)** → the built-in defaults below, in that order. A present `[agents]` table is authoritative; an empty one means no agents.
 - The old per-agent form (`[agents.claude]` with `path`/`enabled`) is rejected with an error explaining the new form.
-- **No config file**: CLI commands run on defaults and never write a config (only `sapato config init` does). The TUI asks once at launch, as a modal confirm, `No config found. Create <path>?`; `y` writes the same file as `config init`, `n` continues on defaults for this run.
+- **No config file**: CLI commands run on defaults and never write a config (only `sapato config init` does). The TUI asks once at launch, as a modal confirm, `No config found. Create <path>?`; `y` writes the same file as `config init`, `n` continues on defaults for this run. Then, if the configured vault does not exist (no `sapato.toml`), the TUI asks `No vault at <path>. Create it?` (modal confirm); `y` runs the same code as `sapato init`, `n` exits with `no vault at <path>; run sapato init` (exit 1). The TUI never crashes on a missing vault.
 - The global `--icons` and `--theme` flags override `[ui]` for one run. Unknown theme or icon set → error listing the valid names.
 - `~` is expanded to the user home dir in every path.
 
@@ -160,7 +160,7 @@ Notes: `remove` counts an agent as "installed" if status is synced/outdated/modi
 
 `sync` rules: acts only on agents with an `[assignments]` key (others never pruned); assignments naming an agent not configured on this machine are reported as skips (`not configured here`) and never fail the sync; `doctor` lists them as info; literal/glob and refusal rules match install/update/uninstall; plans everything (dry-run) before applying. `--force`/`--prune` are CLI flags.
 
-`doctor` severities: `error` = invalid vault skill, corrupt lock (exit 1); `warn` = modified, missing, orphaned, overlap. Findings go to stdout.
+`doctor` severities: `error` = invalid vault skill, corrupt lock (exit 1); `warn` = modified, missing, orphaned, overlap; `info` = assignments naming an agent not configured here. Findings go to stdout.
 
 Overlaps (§2) are about fixed directories the agent itself reads (e.g. cursor always reads `~/.claude/skills`, wherever sapato's `claude` target is configured). Resolve those extra-read dirs from the home dir, and compare each extra-read dir to that agent's own path (and to its other read dirs), symlinks resolved.
 

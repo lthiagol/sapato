@@ -20,7 +20,7 @@ type agentFlags struct {
 
 func (f *agentFlags) add(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVarP(&f.ids, "agent", "a", nil, "agent to act on, repeatable")
-	cmd.Flags().BoolVar(&f.all, "all", false, "act on all enabled agents")
+	cmd.Flags().BoolVar(&f.all, "all", false, "act on all configured agents")
 }
 
 // resolve returns the agents the flags name. Exactly one of -a and --all is required.
@@ -31,7 +31,7 @@ func (f agentFlags) resolve(agents []config.Agent) ([]config.Agent, error) {
 	return f.resolveDefault(agents)
 }
 
-// resolveDefault is resolve, except that neither flag selects the enabled agents.
+// resolveDefault is resolve, except that neither flag selects every configured agent.
 func (f agentFlags) resolveDefault(agents []config.Agent) ([]config.Agent, error) {
 	if f.all && len(f.ids) > 0 {
 		return nil, usageError{errors.New("use either --agent or --all, not both")}
@@ -80,7 +80,7 @@ func newUpdateCmd(opts *globalOpts) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "update [skill...]",
-		Short: "Re-install outdated skills (default: all skills in enabled agents)",
+		Short: "Re-install outdated skills (default: all skills in configured agents)",
 		Args:  usageArgs(cobra.ArbitraryArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig(opts)

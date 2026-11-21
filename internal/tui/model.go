@@ -112,6 +112,7 @@ type Model struct {
 
 	filter    textinput.Model
 	pending   pending
+	noVault   string // the vault the vault prompt offers to create; "" once a vault is open
 	diff      viewport.Model
 	diffTitle string
 
@@ -191,7 +192,7 @@ type appliedMsg struct {
 // agent's lock entry. It is loaded for one skill and agent at a time.
 type detail struct {
 	skill     string // the skill it was loaded for; "" until one is loaded
-	agent     string // the agent's ID, "" when none is enabled
+	agent     string // the agent's ID, "" when none is configured
 	files     []ops.File
 	installed string // the agent whose installed copy the files are, "" for the vault copy
 	entry     target.LockEntry
@@ -213,6 +214,9 @@ type diffMsg struct {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.backend == nil {
+		return nil
+	}
 	return m.loadCmd(false)
 }
 
@@ -405,7 +409,7 @@ func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 // cursorID is the ID of the agent under the skill screen's cursor, or "" when none
-// is enabled.
+// is configured.
 func (m Model) cursorID() string {
 	if m.cur < len(m.agents) {
 		return m.agents[m.cur].ID
@@ -493,7 +497,7 @@ func (m Model) targets() []config.Agent {
 // Install and update copy from the vault, so they wait on a skill the vault lacks.
 func (m Model) startAction(op string, agents []config.Agent) (Model, tea.Cmd) {
 	if len(agents) == 0 {
-		m.notify(noteError, "error", "no enabled agents")
+		m.notify(noteError, "error", "no agents configured")
 		return m, nil
 	}
 	if op != ops.OpUninstall && !m.inVault(m.open) {
@@ -520,7 +524,7 @@ func (m Model) adopt() (Model, tea.Cmd) {
 func (m Model) openDiff() (Model, tea.Cmd) {
 	targets := m.targets()
 	if len(targets) == 0 {
-		m.notify(noteError, "error", "no enabled agents")
+		m.notify(noteError, "error", "no agents configured")
 		return m, nil
 	}
 	if !m.inVault(m.open) {
@@ -577,8 +581,14 @@ func forceReason(plan []ops.Action, err error) (string, bool) {
 // asked it.
 func (m Model) confirmKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	act := m.pending.act
+	if act.op == opVaultInit {
+		return m.vaultKey(msg)
+	}
 	m.pending = pending{}
 	m.mode = act.back
+	if act.op == opConfigInit {
+		return m.configKey(msg, act), nil
+	}
 	if !key.Matches(msg, m.keys.yes) {
 		m.notify(noteInfo, "cancelled", subject(act))
 		return m, nil

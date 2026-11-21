@@ -89,11 +89,11 @@ func TestMarksAreClearedOnLeavingTheSkill(t *testing.T) {
 	}
 }
 
-func TestInstallAllTargetsEveryEnabledAgent(t *testing.T) {
+func TestInstallAllTargetsEveryConfiguredAgent(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.NotInstalled), row("alpha", "cursor", ops.NotInstalled)}}
 	m := press(t, loaded(t, b, []config.Agent{claude, cursorAgent}), "enter", "down", " ", "A")
 	if !slices.Equal(b.lastAgents, []string{"claude", "cursor"}) {
-		t.Errorf("A went to %q, want every enabled agent", b.lastAgents)
+		t.Errorf("A went to %q, want every configured agent", b.lastAgents)
 	}
 	if m.lastMsg() != "install alpha in claude; install alpha in cursor" {
 		t.Errorf("result = %q", m.lastMsg())

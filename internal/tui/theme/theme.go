@@ -163,6 +163,15 @@ func All() []Theme {
 	return slices.Clone(themes)
 }
 
+// Names returns the theme names in UI order.
+func Names() []string {
+	names := make([]string, len(themes))
+	for i, t := range themes {
+		names[i] = t.Name
+	}
+	return names
+}
+
 // ByName returns the theme called name. ok is false for an unknown name.
 func ByName(name string) (Theme, bool) {
 	for _, t := range themes {

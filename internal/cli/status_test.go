@@ -18,7 +18,7 @@ func statusSetup(t *testing.T) (cfgPath, claudeDir string) {
 	vaultDir := testfixtures.CopyTree(t, filepath.Join(testfixtures.Root(), "skill-db"))
 	claudeDir = testfixtures.CopyTree(t, filepath.Join(testfixtures.Root(), "targets", "claude"))
 	cfgPath = filepath.Join(t.TempDir(), "config.toml")
-	content := "vault = \"" + vaultDir + "\"\n\n[agents.claude]\npath = \"" + claudeDir + "\"\n"
+	content := "vault = \"" + vaultDir + "\"\n\n[agents]\nclaude = \"" + claudeDir + "\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +94,13 @@ func TestStatusTable(t *testing.T) {
 	}
 }
 
-func TestStatusDefaultAgentsAreEnabled(t *testing.T) {
-	cfgPath, _ := statusSetup(t)
+func TestStatusDefaultAgentsAreConfigured(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	vaultDir := testfixtures.CopyTree(t, filepath.Join(testfixtures.Root(), "skill-db"))
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("vault = \""+vaultDir+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	code, out, stderr := runCLI("--config", cfgPath, "status", "mocked-skill-00001")
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr %q", code, stderr)
