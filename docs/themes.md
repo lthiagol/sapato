@@ -6,22 +6,20 @@ Source of truth for `internal/tui/theme`. Every theme fills every role. Hex valu
 
 | role | used for |
 |---|---|
-| `Base` | screen background (only painted where we draw blocks: bar, selection) |
-| `Mantle` | bottom bar background |
+| `Base` | palette data (the screen background is the terminal's own) |
+| `Mantle` | palette data (no longer painted; the bar blends with the screen) |
 | `Surface` | selected row background, dialog background |
-| `Overlay` | rules, muted text, `not-installed` icon |
-| `Text` | normal text |
-| `Subtext` | tagline, secondary text |
-| `Accent` | ASCII art, column headers, MAIN badge |
-| `Green` | `synced`, SKILL badge, success messages |
-| `Yellow` | `outdated`, FILTER badge |
-| `Orange` | `modified`, NEW badge |
-| `Red` | `invalid`, errors, force confirm |
-| `Purple` | `orphaned`, ADOPT badge |
-| `Cyan` | `unmanaged`, IMPORT/EXPORT badges |
-| `Pink` | `missing`, THEME badge |
-
-Badge text color: `Base` (dark themes) / `Base` (light themes too — badges are saturated backgrounds).
+| `Overlay` | rules, muted text, ` · ` separators, `not-installed` icon, tree connectors, dimmed backdrop behind modal confirms |
+| `Text` | normal text, skill count in the bar summary |
+| `Subtext` | tagline, secondary text, hint descriptions |
+| `Accent` | ASCII art, column headers, hint keys, focused pane border, plain confirm border, info notifications |
+| `Green` | `synced`, success notifications |
+| `Yellow` | `outdated`, "need attention" in the bar summary |
+| `Orange` | `modified` |
+| `Red` | `invalid`, errors, force confirm border, "invalid" in the bar summary |
+| `Purple` | `orphaned` |
+| `Cyan` | `unmanaged` |
+| `Pink` | `missing` |
 
 ## catppuccin-mocha
 
