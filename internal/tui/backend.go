@@ -10,6 +10,7 @@ import (
 // tests supply a fake.
 type Backend interface {
 	Status(agents []config.Agent) ([]ops.Row, error)
+	Skills() ([]vault.Skill, error)
 	Install(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
 	Uninstall(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
 	Update(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
@@ -24,6 +25,11 @@ type opsBackend struct {
 
 func (b opsBackend) Status(agents []config.Agent) ([]ops.Row, error) {
 	return ops.Status(b.v, agents, ops.Filter{})
+}
+
+// Skills lists the vault skills, valid or not, as the list command does.
+func (b opsBackend) Skills() ([]vault.Skill, error) {
+	return b.v.Skills()
 }
 
 func (b opsBackend) Install(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error) {

@@ -1,0 +1,520 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"sapato/internal/config"
+	"sapato/internal/ops"
+	"sapato/internal/tui/icons"
+	"sapato/internal/vault"
+)
+
+// layoutSizes are the terminal sizes the layout must hold at.
+var layoutSizes = [][2]int{{80, 24}, {120, 40}, {200, 60}}
+
+// layoutModel returns the UI over two agents and a few skills, sized to w×h,
+// with the fake backend it reads from.
+func layoutModel(t *testing.T, w, h int) (Model, *fakeBackend) {
+	t.Helper()
+	b := &fakeBackend{rows: []ops.Row{
+		row("code-review", "claude", ops.Synced), row("code-review", "cursor", ops.NotInstalled),
+		row("obsidian-notes", "claude", ops.Outdated), row("obsidian-notes", "cursor", ops.Synced),
+		row("a-rather-long-skill-name-that-keeps-going-on", "claude", ops.Modified),
+		row("a-rather-long-skill-name-that-keeps-going-on", "cursor", ops.Missing),
+		row("hand-made", "claude", ops.Unmanaged), row("hand-made", "cursor", ops.Orphaned),
+	}}
+	m := sized(t, loaded(t, b, []config.Agent{claude, cursorAgent}), w, h)
+	return m, b
+}
+
+// leadingSpaces counts the spaces before the first other column of line.
+func leadingSpaces(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
+}
+
+// lineWith returns the first line of view that contains s.
+func lineWith(t *testing.T, view, s string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, s) {
+			return line
+		}
+	}
+	t.Fatalf("no line contains %q:\n%s", s, view)
+	return ""
+}
+
+func TestHeaderIsFullOrCompact(t *testing.T) {
+	tests := []struct {
+		name        string
+		w, h        int
+		wantCompact bool
+	}{
+		{name: "tall and wide shows the art", w: 120, h: 40, wantCompact: false},
+		{name: "80 by 24 is compact", w: 80, h: 24, wantCompact: true},
+		{name: "short terminal is compact", w: 120, h: 29, wantCompact: true},
+		{name: "narrower than the art is compact", w: 40, h: 40, wantCompact: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := layoutModel(t, tt.w, tt.h)
+			if got := m.compact(); got != tt.wantCompact {
+				t.Fatalf("compact() = %t, want %t", got, tt.wantCompact)
+			}
+			lines := strings.Split(m.View(), "\n")
+			if tt.wantCompact {
+				if !strings.Contains(lines[0], "sapato") || lines[1] != m.styles.rule.Render(strings.Repeat(m.icons.Rule, tt.w)) {
+					t.Errorf("compact header: line 0 %q, line 1 is not the rule", lines[0])
+				}
+				return
+			}
+			for i, art := range sapatoArt {
+				if got := strings.TrimLeft(lines[i], " "); got != art {
+					t.Errorf("art line %d = %q, want %q", i, got, art)
+				}
+				if got, want := leadingSpaces(lines[i]), (tt.w-artW)/2; got != want {
+					t.Errorf("art line %d indent = %d, want %d", i, got, want)
+				}
+			}
+			tag := lines[len(sapatoArt)]
+			if got := strings.TrimSpace(tag); got != tagline {
+				t.Errorf("tagline line = %q", tag)
+			}
+			left := leadingSpaces(tag)
+			right := tt.w - left - lipgloss.Width(strings.TrimSpace(tag))
+			if left-right > 1 || right-left > 1 {
+				t.Errorf("tagline margins left %d, right %d; want equal within 1", left, right)
+			}
+		})
+	}
+}
+
+func TestCompactHeaderDropsTaglineWhenItDoesNotFit(t *testing.T) {
+	m, _ := layoutModel(t, 40, 40)
+	if line := m.View(); strings.Contains(strings.Split(line, "\n")[0], "Skills") {
+		t.Errorf("header kept the tagline at 40 columns:\n%s", line)
+	}
+	if line := strings.Split(m.View(), "\n")[0]; !strings.Contains(line, "sapato") {
+		t.Errorf("header lacks the name: %q", line)
+	}
+}
+
+func TestGridIsCentered(t *testing.T) {
+	for _, size := range layoutSizes {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			m, _ := layoutModel(t, size[0], size[1])
+			view := m.View()
+			// The cursor row's marker is not a space, so its leading spaces are the
+			// indent of the whole grid block.
+			line := lineWith(t, view, "▶ a-rather")
+			left := leadingSpaces(line)
+			block := lipgloss.Width(line) - left
+			if right := size[0] - left - block; left-right > 1 || right-left > 1 {
+				t.Errorf("grid left margin %d, right %d in %q; want equal within 1", left, right, line)
+			}
+		})
+	}
+}
+
+func TestRuleIsFullWidth(t *testing.T) {
+	for _, size := range layoutSizes {
+		m, _ := layoutModel(t, size[0], size[1])
+		lines := strings.Split(m.View(), "\n")
+		if got := lipgloss.Width(lines[m.headerHeight()]); got != size[0] {
+			t.Errorf("%dx%d: rule is %d columns, want %d", size[0], size[1], got, size[0])
+		}
+	}
+}
+
+func TestEveryScreenFitsTheTerminal(t *testing.T) {
+	screens := []struct {
+		name  string
+		steps []string
+	}{
+		{name: "main grid"},
+		{name: "filter", steps: []string{"/", "o"}},
+		{name: "help", steps: []string{"?"}},
+		{name: "skill screen", steps: []string{"enter"}},
+		{name: "skill screen with a mark", steps: []string{"enter", "down", " "}},
+		{name: "confirm", steps: []string{"enter", "u"}},
+		{name: "diff", steps: []string{"enter", "d"}},
+		{name: "skill help", steps: []string{"enter", "?"}},
+	}
+	for _, size := range layoutSizes {
+		for _, sc := range screens {
+			t.Run(fmt.Sprintf("%s at %dx%d", sc.name, size[0], size[1]), func(t *testing.T) {
+				m, b := layoutModel(t, size[0], size[1])
+				b.changes = []ops.FileChange{{Rel: "SKILL.md", Kind: ops.ChangeChanged, Diff: "--- a\n+++ b\n@@ -1 +1 @@\n-" + strings.Repeat("old ", 60) + "\n+" + strings.Repeat("new ", 60) + "\n"}}
+				m = press(t, m, sc.steps...)
+				lines := strings.Split(m.View(), "\n")
+				if len(lines) != size[1] {
+					t.Errorf("view has %d lines, want %d", len(lines), size[1])
+				}
+				for _, line := range lines {
+					if w := lipgloss.Width(line); w > size[0] {
+						t.Errorf("line is %d columns, want at most %d: %q", w, size[0], line)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestBarFitsOneRowAt80(t *testing.T) {
+	m, _ := layoutModel(t, 80, 24)
+	lines := strings.Split(m.View(), "\n")
+	bar := lines[len(lines)-1]
+	if w := lipgloss.Width(bar); w != 80 {
+		t.Errorf("bar is %d columns, want 80: %q", w, bar)
+	}
+	for _, want := range []string{"MAIN", "3 need attention", "q quit"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("bar lacks %q: %q", want, bar)
+		}
+	}
+}
+
+func TestBarWithNerdIconsFitsOneRowAt80(t *testing.T) {
+	th, _ := testLook(t)
+	set, ok := icons.ByName("nerd")
+	if !ok {
+		t.Fatal("icon set nerd is missing")
+	}
+	b := &fakeBackend{rows: []ops.Row{row("code-review", "claude", ops.Synced)}}
+	m := New(b, []config.Agent{claude}, th, set, true)
+	m, _ = settle(t, m, m.Init())
+	m = sized(t, m, 80, 24)
+	lines := strings.Split(m.View(), "\n")
+	bar := lines[len(lines)-1]
+	if w := lipgloss.Width(bar); w != 80 {
+		t.Errorf("bar is %d columns, want 80: %q", w, bar)
+	}
+	for _, sep := range []string{set.SepRight, set.SepLeft} {
+		if !strings.Contains(bar, sep) {
+			t.Errorf("bar lacks the powerline separator %q: %q", sep, bar)
+		}
+	}
+}
+
+// longPath is a folder path too long for an 80-column terminal.
+const longPath = "/home/agent/a-long-directory-name/another-long-directory-name/more-folders/skills"
+
+// skillScreenModel opens alpha, which has a vault copy with a long path, a long
+// description and an invalid problem, and sits in claude at a long path too.
+func skillScreenModel(t *testing.T, w, h int) Model {
+	t.Helper()
+	b := &fakeBackend{
+		rows: []ops.Row{row("alpha", "claude", ops.Synced), row("alpha", "cursor", ops.NotInstalled)},
+		vaultSkills: []vault.Skill{{
+			Name: "alpha", Dir: longPath + "/alpha", Version: "1.2.0", Hash: "sha256:0123456789abcdef",
+			Description: strings.Repeat("Reviews the pending changes on a branch and says what to fix first. ", 4),
+			Problems:    []string{strings.Repeat("the problem text runs on for a long time ", 3)},
+		}},
+	}
+	agents := []config.Agent{{ID: "claude", Path: longPath, Enabled: true}, cursorAgent}
+	return press(t, sized(t, loaded(t, b, agents), w, h), "enter")
+}
+
+// bodyMargins returns the columns left of the screen body's block and the columns
+// right of it. The block is the widest non-blank line of the body.
+func bodyMargins(t *testing.T, m Model) (left, right int) {
+	t.Helper()
+	lines := strings.Split(m.View(), "\n")
+	left, widest := m.width, 0
+	for _, line := range lines[m.headerHeight()+1 : len(lines)-1] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		left = min(left, leadingSpaces(line))
+		widest = max(widest, lipgloss.Width(line))
+	}
+	return left, m.width - widest
+}
+
+func TestSkillScreenIsCentered(t *testing.T) {
+	for _, size := range layoutSizes {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			m := skillScreenModel(t, size[0], size[1])
+			if left, right := bodyMargins(t, m); left-right > 1 || right-left > 1 {
+				t.Errorf("left margin %d, right %d; want equal within 1:\n%s", left, right, m.View())
+			}
+		})
+	}
+}
+
+func TestSkillRuleIsAsWideAsTheBlock(t *testing.T) {
+	for _, size := range layoutSizes {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			m := skillScreenModel(t, size[0], size[1])
+			lines := strings.Split(m.View(), "\n")
+			rule := -1
+			for i := m.headerHeight() + 1; i < len(lines) && rule < 0; i++ {
+				if text := strings.TrimSpace(lines[i]); text != "" && strings.Trim(text, m.icons.Rule) == "" {
+					rule = i
+				}
+			}
+			if rule < 0 {
+				t.Fatalf("no rule under the header:\n%s", m.View())
+			}
+			vaultLine, agentLine := -1, -1
+			for i, line := range lines {
+				if vaultLine < 0 && strings.Contains(line, "vault") {
+					vaultLine = i
+				}
+				if agentLine < 0 && strings.Contains(line, "cursor") {
+					agentLine = i
+				}
+			}
+			if !(vaultLine < rule && rule < agentLine) {
+				t.Errorf("rule at line %d, want between the vault line %d and the agents at %d", rule, vaultLine, agentLine)
+			}
+			pad, widest := leadingSpaces(lines[rule]), 0
+			for i := m.headerHeight() + 1; i < len(lines)-1; i++ {
+				if i != rule {
+					widest = max(widest, lipgloss.Width(lines[i]))
+				}
+			}
+			if got, want := lipgloss.Width(strings.TrimSpace(lines[rule])), widest-pad; got != want {
+				t.Errorf("rule is %d columns, want the block width %d:\n%s", got, want, m.View())
+			}
+		})
+	}
+}
+
+func TestSkillScreenCutsLongValuesWithAnEllipsis(t *testing.T) {
+	m := skillScreenModel(t, 80, 24)
+	view := m.View()
+	for _, label := range []string{"vault", "claude", "problem text"} {
+		line := lineWith(t, view, label)
+		if !strings.HasSuffix(strings.TrimRight(line, " "), "…") {
+			t.Errorf("line with %q does not end with an ellipsis: %q", label, line)
+		}
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("line is %d columns, want at most 80: %q", w, line)
+		}
+	}
+}
+
+func TestSkillDescriptionEndsItsThirdLineWithAnEllipsis(t *testing.T) {
+	lines := strings.Split(skillScreenModel(t, 80, 24).View(), "\n")
+	label := -1
+	for i, line := range lines {
+		if strings.Contains(line, "description") {
+			label = i
+			break
+		}
+	}
+	if label < 0 || label+2 >= len(lines) {
+		t.Fatalf("no description block:\n%s", strings.Join(lines, "\n"))
+	}
+	if third := strings.TrimRight(lines[label+2], " "); !strings.HasSuffix(third, "…") {
+		t.Errorf("third description line %q does not end with an ellipsis", third)
+	}
+}
+
+// shortSkillModel opens beta, whose values are all short, with the given description.
+func shortSkillModel(t *testing.T, w, h int, desc string) Model {
+	t.Helper()
+	b := &fakeBackend{
+		rows: []ops.Row{row("beta", "claude", ops.Synced), row("beta", "cursor", ops.NotInstalled)},
+		vaultSkills: []vault.Skill{{
+			Name: "beta", Dir: "/vault/beta", Version: "1.0.0", Hash: "sha256:0123456789abcdef",
+			Valid: true, Description: desc,
+		}},
+	}
+	return press(t, sized(t, loaded(t, b, []config.Agent{claude, cursorAgent}), w, h), "enter")
+}
+
+func TestSkillBlockIgnoresTheDescription(t *testing.T) {
+	m := shortSkillModel(t, 140, 40, strings.Repeat("Reviews the pending changes on a branch and says what to fix first. ", 6))
+	left, right := bodyMargins(t, m)
+	if left <= 10 {
+		t.Errorf("left margin %d, want more than 10: the description must not widen the block:\n%s", left, m.View())
+	}
+	if left-right > 1 || right-left > 1 {
+		t.Errorf("left margin %d, right %d; want equal within 1:\n%s", left, right, m.View())
+	}
+	blockW := m.width - left - right
+	lines := strings.Split(m.View(), "\n")
+	label := -1
+	for i, line := range lines {
+		if strings.Contains(line, "description") {
+			label = i
+			break
+		}
+	}
+	if label < 0 || label+2 >= len(lines) {
+		t.Fatalf("no description block:\n%s", m.View())
+	}
+	for _, line := range lines[label : label+3] {
+		if w := lipgloss.Width(strings.TrimLeft(line, " ")); w > blockW {
+			t.Errorf("description line is %d columns, want at most the block width %d: %q", w, blockW, line)
+		}
+	}
+	if third := strings.TrimRight(lines[label+2], " "); !strings.HasSuffix(third, "…") {
+		t.Errorf("third description line %q does not end with an ellipsis", third)
+	}
+}
+
+func TestSkillBlockIsAtLeast60WideAt80(t *testing.T) {
+	m := shortSkillModel(t, 80, 24, "Short.")
+	left, right := bodyMargins(t, m)
+	if got := m.width - left - right; got < 60 {
+		t.Errorf("block is %d columns, want at least 60:\n%s", got, m.View())
+	}
+}
+
+func TestSkillScreenKeepsTheCursorAgentInView(t *testing.T) {
+	var agents []config.Agent
+	for i := range 20 {
+		agents = append(agents, config.Agent{ID: fmt.Sprintf("agent-%02d", i), Path: fmt.Sprintf("/agents/%02d", i), Enabled: true})
+	}
+	b := &fakeBackend{rows: []ops.Row{row("alpha", "agent-00", ops.Synced)}}
+	m := press(t, sized(t, loaded(t, b, agents), 80, 24), "enter")
+	for range 19 {
+		m = press(t, m, "down")
+	}
+	view := m.View()
+	if got := lineWith(t, view, m.icons.Marker); !strings.Contains(got, "agent-19") {
+		t.Errorf("cursor row = %q, want agent-19", got)
+	}
+	if lines := strings.Split(view, "\n"); len(lines) != 24 {
+		t.Errorf("view has %d lines, want 24", len(lines))
+	}
+}
+
+// assertFits fails on each body line wider than w columns. It checks the lines
+// before the frame cuts them to the terminal.
+func assertFits(t *testing.T, w int, body []string) {
+	t.Helper()
+	for _, line := range body {
+		if got := lipgloss.Width(line); got > w {
+			t.Errorf("body line is %d columns, want at most %d: %q", got, w, line)
+		}
+	}
+}
+
+func TestBodiesFitBeforeTheFrameCutsThem(t *testing.T) {
+	for _, size := range layoutSizes {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			grid, _ := layoutModel(t, size[0], size[1])
+			assertFits(t, size[0], grid.mainBody())
+			assertFits(t, size[0], skillScreenModel(t, size[0], size[1]).skillBody())
+		})
+	}
+}
+
+func TestBarCountsSkillsOnTheMainScreen(t *testing.T) {
+	m, _ := layoutModel(t, 200, 60)
+	if bar := strings.Split(m.View(), "\n"); !strings.Contains(bar[len(bar)-1], "4 skills · 0 invalid · 3 need attention") {
+		t.Errorf("bar lacks the counts: %q", bar[len(bar)-1])
+	}
+}
+
+func TestBarNamesTheSkillScreenAndItsBackKey(t *testing.T) {
+	m, _ := layoutModel(t, 120, 40)
+	m = press(t, m, "enter")
+	bar := strings.Split(m.View(), "\n")
+	if last := bar[len(bar)-1]; !strings.Contains(last, "SKILL") || !strings.Contains(last, "esc back") {
+		t.Errorf("skill bar = %q", last)
+	}
+}
+
+func TestBarHintsLoseTheirLeftEndFirst(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		w    int
+		want string
+	}{
+		{name: "fits", s: "a · b", w: 10, want: "a · b"},
+		{name: "cut from the left with an ellipsis", s: "a · b · c", w: 5, want: "… · c"},
+		{name: "nothing fits", s: "a · b", w: 0, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tailCut(tt.s, tt.w); got != tt.want {
+				t.Errorf("tailCut(%q, %d) = %q, want %q", tt.s, tt.w, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSkillInfoShowsTheVaultSkill(t *testing.T) {
+	b := &fakeBackend{
+		rows: []ops.Row{row("alpha", "claude", ops.Synced), row("alpha", "cursor", ops.NotInstalled)},
+		vaultSkills: []vault.Skill{{
+			Name: "alpha", Dir: "/vault/skills/alpha", Version: "1.2.0", Hash: "sha256:0123456789abcdef",
+			Description: "Reviews the pending changes on a branch, then says what to fix first.",
+			Valid:       false, Problems: []string{"description is longer than 1024 characters"},
+		}},
+	}
+	m := press(t, sized(t, loaded(t, b, []config.Agent{claude, cursorAgent}), 120, 40), "enter")
+	view := m.View()
+	for _, want := range []string{"1.2.0", "sha256:0123456789ab", "invalid", "description is longer than 1024 characters", "Reviews the pending changes", "/vault/skills/alpha"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("skill screen lacks %q:\n%s", want, view)
+		}
+	}
+	if descLines := strings.Count(view, "Reviews") + strings.Count(view, "branch") + strings.Count(view, "first."); descLines > 3 {
+		t.Errorf("description spans more than 3 lines:\n%s", view)
+	}
+	for _, want := range []string{"claude", "synced", "/agents/claude/alpha", "cursor", "not-installed"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("agent rows lack %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSkillScreenWithoutVaultCopy(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Orphaned)}}
+	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 120, 40), "enter")
+	if view := m.View(); !strings.Contains(view, "not in the vault") {
+		t.Errorf("skill screen does not say the vault lacks the skill:\n%s", view)
+	}
+}
+
+func TestArtIsSixLinesWithoutTrailingSpaces(t *testing.T) {
+	if len(sapatoArt) != 6 {
+		t.Fatalf("art has %d lines, want 6", len(sapatoArt))
+	}
+	for i, l := range sapatoArt {
+		if strings.TrimRight(l, " ") != l {
+			t.Errorf("art line %d has trailing spaces: %q", i, l)
+		}
+	}
+}
+
+func TestShortHash(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"sha256:0123456789abcdef", "sha256:0123456789ab"},
+		{"sha256:abc", "sha256:abc"},
+		{"", ":"},
+	}
+	for _, tt := range tests {
+		if got := shortHash(tt.in); got != tt.want {
+			t.Errorf("shortHash(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestNoColorSelectsWithReverseVideo(t *testing.T) {
+	th, _ := testLook(t)
+	plain := newStyles(th, true)
+	if !plain.row.GetReverse() {
+		t.Errorf("NO_COLOR selected row lacks reverse video")
+	}
+	if _, ok := plain.row.GetBackground().(lipgloss.NoColor); !ok {
+		t.Errorf("NO_COLOR selected row sets a background")
+	}
+	colored := newStyles(th, false)
+	if got := colored.row.GetBackground(); got != th.Surface {
+		t.Errorf("selected row background = %v, want the Surface role %v", got, th.Surface)
+	}
+}

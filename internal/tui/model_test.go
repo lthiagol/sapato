@@ -13,6 +13,7 @@ import (
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
+	"sapato/internal/vault"
 )
 
 // fakeBackend answers the ops calls from canned data and records each call.
@@ -25,11 +26,43 @@ type fakeBackend struct {
 	opErr     map[string]error // by op name: the error every call of that op returns
 	noop      map[string]bool  // by op name: the call plans nothing
 	calls     []string
+	// lastAgents are the agent IDs of the last install, uninstall, update or adopt.
+	lastAgents []string
+	// vaultSkills, when set, is what Skills returns. Otherwise every skill in rows
+	// is in the vault, except one with an orphaned row, and an invalid row makes
+	// its skill invalid.
+	vaultSkills []vault.Skill
 }
 
 func (f *fakeBackend) Status(_ []config.Agent) ([]ops.Row, error) {
 	f.calls = append(f.calls, "status")
 	return f.rows, f.statusErr
+}
+
+func (f *fakeBackend) Skills() ([]vault.Skill, error) {
+	if f.vaultSkills != nil {
+		return f.vaultSkills, nil
+	}
+	var skills []vault.Skill
+	seen := map[string]bool{}
+	for _, r := range f.rows {
+		if seen[r.Skill] {
+			continue
+		}
+		seen[r.Skill] = true
+		inVault, valid := true, true
+		for _, o := range f.rows {
+			if o.Skill != r.Skill {
+				continue
+			}
+			inVault = inVault && o.Status != ops.Orphaned
+			valid = valid && o.Status != ops.Invalid
+		}
+		if inVault {
+			skills = append(skills, vault.Skill{Name: r.Skill, Dir: "/vault/skills/" + r.Skill, Valid: valid, Hash: "sha256:0123456789abcdef0123"})
+		}
+	}
+	return skills, nil
 }
 
 // needsForce is a refusal shaped like ops': its text is msg, and it matches
@@ -55,6 +88,7 @@ func (f *fakeBackend) state(skill, agent string) ops.State {
 // modified one, and an update skips a modified copy.
 func (f *fakeBackend) run(op string, agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error) {
 	f.calls = append(f.calls, fmt.Sprintf("%s %s dry=%t force=%t", op, skills[0], opts.DryRun, opts.Force))
+	f.lastAgents = idList(agents)
 	if err := f.opErr[op]; err != nil {
 		return nil, err
 	}
@@ -93,6 +127,7 @@ func (f *fakeBackend) Update(agents []config.Agent, skills []string, opts ops.Op
 
 func (f *fakeBackend) Adopt(agent config.Agent, skill string, opts ops.Options) (ops.Action, error) {
 	f.calls = append(f.calls, fmt.Sprintf("adopt %s dry=%t force=%t", skill, opts.DryRun, opts.Force))
+	f.lastAgents = []string{agent.ID}
 	if err := f.opErr[ops.OpAdopt]; err != nil {
 		return ops.Action{}, err
 	}
@@ -112,6 +147,15 @@ var (
 	cursorAgent = config.Agent{ID: "cursor", Path: "/agents/cursor", Enabled: true}
 )
 
+// idList returns the IDs of agents, in order.
+func idList(agents []config.Agent) []string {
+	var ids []string
+	for _, a := range agents {
+		ids = append(ids, a.ID)
+	}
+	return ids
+}
+
 func row(skill, agent string, st ops.State) ops.Row {
 	return ops.Row{Skill: skill, Agent: agent, Status: st}
 }
@@ -121,6 +165,7 @@ func keyMsg(s string) tea.KeyMsg {
 	special := map[string]tea.KeyType{
 		"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
 		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "ctrl+c": tea.KeyCtrlC,
+		"space": tea.KeySpace, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
 	}
 	if t, ok := special[s]; ok {
 		return tea.KeyMsg{Type: t}
@@ -181,40 +226,50 @@ func sized(t *testing.T, m Model, width, height int) Model {
 	return m
 }
 
-// at moves the cursor onto skill in agent.
-func at(t *testing.T, m Model, skill, agent string) Model {
+// onRow moves the grid cursor onto skill.
+func onRow(t *testing.T, m Model, skill string) Model {
 	t.Helper()
 	m.row = slices.Index(m.skills, skill)
-	m.col = slices.IndexFunc(m.agents, func(a config.Agent) bool { return a.ID == agent })
-	if m.row < 0 || m.col < 0 {
-		t.Fatalf("no cell for %s in %s", skill, agent)
+	if m.row < 0 {
+		t.Fatalf("no row for %s", skill)
 	}
 	return m
 }
 
-func TestMatrixCursorStaysInBounds(t *testing.T) {
+// onSkill opens skill on the skill screen, with the agent cursor on agent.
+func onSkill(t *testing.T, m Model, skill, agent string) Model {
+	t.Helper()
+	m = press(t, onRow(t, m, skill), "enter")
+	m.cur = slices.IndexFunc(m.agents, func(a config.Agent) bool { return a.ID == agent })
+	if m.screen != screenSkill || m.open != skill || m.cur < 0 {
+		t.Fatalf("skill screen for %s in %s not open (screen %v, cursor %d)", skill, agent, m.screen, m.cur)
+	}
+	return m
+}
+
+func TestMainCursorStaysInBounds(t *testing.T) {
 	tests := []struct {
 		name    string
 		keys    []string
 		wantRow int
-		wantCol int
 	}{
-		{name: "start at top left", keys: nil, wantRow: 0, wantCol: 0},
-		{name: "up at top stays", keys: []string{"up", "k"}, wantRow: 0, wantCol: 0},
-		{name: "left at edge stays", keys: []string{"left", "h"}, wantRow: 0, wantCol: 0},
-		{name: "down and right move", keys: []string{"j", "l"}, wantRow: 1, wantCol: 1},
-		{name: "down at bottom stays", keys: []string{"down", "down", "down"}, wantRow: 1, wantCol: 0},
-		{name: "right at last agent stays", keys: []string{"right", "right", "right"}, wantRow: 0, wantCol: 1},
+		{name: "start at the top", keys: nil, wantRow: 0},
+		{name: "up at the top stays", keys: []string{"up", "k"}, wantRow: 0},
+		{name: "down and j move", keys: []string{"j", "down"}, wantRow: 2},
+		{name: "down at the bottom stays", keys: []string{"j", "j", "j", "j"}, wantRow: 2},
+		{name: "G goes to the bottom", keys: []string{"G"}, wantRow: 2},
+		{name: "g goes back to the top", keys: []string{"G", "g"}, wantRow: 0},
+		{name: "pgdown past the end stops at the last row", keys: []string{"pgdown"}, wantRow: 2},
+		{name: "pgup at the top stays", keys: []string{"pgup"}, wantRow: 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := &fakeBackend{rows: []ops.Row{
-				row("alpha", "claude", ops.Synced), row("alpha", "cursor", ops.NotInstalled),
-				row("beta", "claude", ops.Synced), row("beta", "cursor", ops.Synced),
+				row("alpha", "claude", ops.Synced), row("beta", "claude", ops.Synced), row("gamma", "claude", ops.Synced),
 			}}
 			m := press(t, loaded(t, b, []config.Agent{claude, cursorAgent}), tt.keys...)
-			if m.row != tt.wantRow || m.col != tt.wantCol {
-				t.Errorf("cursor = (%d,%d), want (%d,%d)", m.row, m.col, tt.wantRow, tt.wantCol)
+			if m.row != tt.wantRow {
+				t.Errorf("row = %d, want %d", m.row, tt.wantRow)
 			}
 		})
 	}
@@ -234,7 +289,7 @@ func TestActionsOnCursorCell(t *testing.T) {
 	}{
 		{
 			name: "install of a not-installed skill applies at once", state: ops.NotInstalled, key: "i",
-			wantMode:  modeMatrix,
+			wantMode:  modeNormal,
 			wantCalls: []string{"install alpha dry=true force=false", "install alpha dry=false force=false", "status"},
 			wantMsg:   "install alpha in claude",
 		},
@@ -245,33 +300,33 @@ func TestActionsOnCursorCell(t *testing.T) {
 		},
 		{
 			name: "uninstall after yes", state: ops.Synced, key: "u", answer: "y",
-			wantMode:  modeMatrix,
+			wantMode:  modeNormal,
 			wantCalls: []string{"uninstall alpha dry=true force=false", "uninstall alpha dry=false force=false", "status"},
 			wantMsg:   "uninstall alpha in claude",
 		},
 		{
 			name: "update of an outdated skill applies at once", state: ops.Outdated, key: "U",
-			wantMode:  modeMatrix,
+			wantMode:  modeNormal,
 			wantCalls: []string{"update alpha dry=true force=false", "update alpha dry=false force=false", "status"},
 			wantMsg:   "update alpha in claude",
 		},
 		{
 			name: "update with nothing to do does not apply", state: ops.Synced, key: "U",
 			setup:     func(b *fakeBackend) { b.noop = map[string]bool{ops.OpUpdate: true} },
-			wantMode:  modeMatrix,
+			wantMode:  modeNormal,
 			wantCalls: []string{"update alpha dry=true force=false"},
 			wantMsg:   "nothing to do",
 		},
 		{
 			name: "adopt of an unmanaged folder into an empty vault applies at once", state: ops.Unmanaged, key: "a",
-			wantMode:  modeMatrix,
+			wantMode:  modeNormal,
 			wantCalls: []string{"adopt alpha dry=true force=false", "adopt alpha dry=false force=false", "status"},
 			wantMsg:   "adopt alpha in claude",
 		},
 		{
 			name: "a dry run error is shown and nothing applies", state: ops.Synced, key: "u",
 			setup:     func(b *fakeBackend) { b.opErr = map[string]error{ops.OpUninstall: errors.New("boom")} },
-			wantMode:  modeMatrix,
+			wantMode:  modeNormal,
 			wantCalls: []string{"uninstall alpha dry=true force=false"},
 			wantMsg:   "boom",
 			wantErr:   true,
@@ -284,7 +339,7 @@ func TestActionsOnCursorCell(t *testing.T) {
 				tt.setup(b)
 			}
 			m := loaded(t, b, []config.Agent{claude})
-			m = press(t, m, tt.key)
+			m = press(t, m, "enter", tt.key)
 			if m.mode == modeConfirm && tt.answer != "" {
 				m = press(t, m, tt.answer)
 			}
@@ -306,8 +361,8 @@ func TestActionsOnCursorCell(t *testing.T) {
 
 func TestConfirmCancelWithEscapeMakesNoCall(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
-	m := press(t, loaded(t, b, []config.Agent{claude}), "u", "esc")
-	if m.mode != modeMatrix || m.result != "cancelled" {
+	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "u", "esc")
+	if m.mode != modeNormal || m.result != "cancelled" {
 		t.Errorf("mode = %v, result = %q; want matrix and cancelled", m.mode, m.result)
 	}
 	if want := []string{"uninstall alpha dry=true force=false"}; !slices.Equal(b.calls, want) {
@@ -317,7 +372,7 @@ func TestConfirmCancelWithEscapeMakesNoCall(t *testing.T) {
 
 func TestActionWithNoSkillReportsIt(t *testing.T) {
 	b := &fakeBackend{}
-	m := press(t, loaded(t, b, []config.Agent{claude}), "i", "d")
+	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "i")
 	if m.result != nothingSelected || !m.resultErr {
 		t.Errorf("result = %q (err %t), want %q as an error", m.result, m.resultErr, nothingSelected)
 	}
@@ -341,7 +396,7 @@ func TestLoadErrorIsShownAndRowsKept(t *testing.T) {
 
 func TestRefreshKeepsCursorOnSameSkill(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced), row("beta", "claude", ops.Synced)}}
-	m := at(t, loaded(t, b, []config.Agent{claude}), "beta", "claude")
+	m := onRow(t, loaded(t, b, []config.Agent{claude}), "beta")
 	b.rows = []ops.Row{row("alpha", "claude", ops.Synced), row("aardvark", "claude", ops.Synced), row("beta", "claude", ops.Synced)}
 	m = press(t, m, "r")
 	if got := m.skills[m.row]; got != "beta" {
@@ -354,7 +409,7 @@ func TestDiffPagerOpensAndCloses(t *testing.T) {
 		rows:    []ops.Row{row("alpha", "claude", ops.Modified)},
 		changes: []ops.FileChange{{Rel: "SKILL.md", Kind: ops.ChangeChanged, Diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"}},
 	}
-	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 80, 30), "d")
+	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 80, 30), "enter", "d")
 	if m.mode != modeDiff {
 		t.Fatalf("mode = %v, want diff", m.mode)
 	}
@@ -367,14 +422,14 @@ func TestDiffPagerOpensAndCloses(t *testing.T) {
 			t.Errorf("diff view lacks %q:\n%s", want, view)
 		}
 	}
-	if m = press(t, m, "esc"); m.mode != modeMatrix {
-		t.Errorf("mode after esc = %v, want matrix", m.mode)
+	if m = press(t, m, "esc"); m.mode != modeNormal || m.screen != screenSkill {
+		t.Errorf("after esc: mode = %v, screen = %v; want the skill screen", m.mode, m.screen)
 	}
 }
 
 func TestDiffWithNoChangesSaysSo(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
-	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 80, 30), "d")
+	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 80, 30), "enter", "d")
 	if !strings.Contains(m.View(), "no differences") {
 		t.Errorf("view lacks the no-differences line:\n%s", m.View())
 	}
@@ -385,8 +440,8 @@ func TestDiffErrorIsShown(t *testing.T) {
 		rows:    []ops.Row{row("alpha", "claude", ops.Missing)},
 		diffErr: errors.New("diff alpha in claude: not installed"),
 	}
-	m := press(t, loaded(t, b, []config.Agent{claude}), "d")
-	if m.mode != modeMatrix || !m.resultErr || !strings.Contains(m.result, "not installed") {
+	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "d")
+	if m.mode != modeNormal || !m.resultErr || !strings.Contains(m.result, "not installed") {
 		t.Errorf("mode = %v, result = %q (err %t); want matrix with the error", m.mode, m.result, m.resultErr)
 	}
 }
@@ -406,9 +461,9 @@ func TestFilterNarrowsRowsAndEscClears(t *testing.T) {
 	}{
 		{name: "typing narrows live", keys: []string{"/", "A"}, want: []string{"alpha", "beta", "gamma"}, wantMode: modeFilter, wantQ: "A"},
 		{name: "letters match case-insensitively", keys: []string{"/", "a", "m"}, want: []string{"gamma"}, wantMode: modeFilter, wantQ: "am"},
-		{name: "enter keeps the filter", keys: []string{"/", "e", "t", "a", "enter"}, want: []string{"beta"}, wantMode: modeMatrix, wantQ: "eta"},
-		{name: "esc clears the filter", keys: []string{"/", "b", "esc"}, want: []string{"alpha", "beta", "gamma"}, wantMode: modeMatrix, wantQ: ""},
-		{name: "esc in matrix clears a kept filter", keys: []string{"/", "b", "enter", "esc"}, want: []string{"alpha", "beta", "gamma"}, wantMode: modeMatrix, wantQ: ""},
+		{name: "enter keeps the filter", keys: []string{"/", "e", "t", "a", "enter"}, want: []string{"beta"}, wantMode: modeNormal, wantQ: "eta"},
+		{name: "esc clears the filter", keys: []string{"/", "b", "esc"}, want: []string{"alpha", "beta", "gamma"}, wantMode: modeNormal, wantQ: ""},
+		{name: "esc in matrix clears a kept filter", keys: []string{"/", "b", "enter", "esc"}, want: []string{"alpha", "beta", "gamma"}, wantMode: modeNormal, wantQ: ""},
 		{name: "no match leaves no rows", keys: []string{"/", "z"}, want: nil, wantMode: modeFilter, wantQ: "z"},
 	}
 	for _, tt := range tests {
@@ -463,7 +518,7 @@ func TestHelpTogglesAndLegendCoversAllStates(t *testing.T) {
 			t.Errorf("help lacks the legend entry for %s", st.state)
 		}
 	}
-	if m = press(t, m, "?"); m.mode != modeMatrix {
+	if m = press(t, m, "?"); m.mode != modeNormal {
 		t.Errorf("mode after second ? = %v, want matrix", m.mode)
 	}
 }
@@ -493,18 +548,22 @@ func TestScrollKeepsCursorRowInWindow(t *testing.T) {
 		rows = append(rows, row(fmt.Sprintf("skill-%02d", i), "claude", ops.Synced))
 	}
 	b := &fakeBackend{rows: rows}
-	m := sized(t, loaded(t, b, []config.Agent{claude}), 80, matrixChrome+2)
+	m := sized(t, loaded(t, b, []config.Agent{claude}), 80, 10)
+	vis := m.visibleRows()
+	if vis < 2 || vis >= len(rows) {
+		t.Fatalf("visibleRows = %d, want a window smaller than the list", vis)
+	}
 
-	m = press(t, m, "j", "j", "j", "j", "j")
-	if m.row != 5 || m.top != 4 {
-		t.Errorf("after 5 downs: row = %d, top = %d; want row 5, top 4", m.row, m.top)
+	m = press(t, m, slices.Repeat([]string{"j"}, vis+1)...)
+	if want := vis + 1; m.row != want || m.top != want-vis+1 {
+		t.Errorf("after %d downs: row = %d, top = %d; want row %d, top %d", vis+1, m.row, m.top, want, want-vis+1)
 	}
-	if view := m.View(); !strings.Contains(view, "skill-05") || strings.Contains(view, "skill-00") {
-		t.Errorf("window does not show the cursor row alone:\n%s", view)
+	if view := m.View(); !strings.Contains(view, fmt.Sprintf("skill-%02d", m.row)) || strings.Contains(view, "skill-00") {
+		t.Errorf("window does not show the cursor row:\n%s", view)
 	}
-	m = press(t, m, "k", "k", "k", "k", "k")
+	m = press(t, m, slices.Repeat([]string{"k"}, vis+1)...)
 	if m.row != 0 || m.top != 0 {
-		t.Errorf("after 5 ups: row = %d, top = %d; want 0, 0", m.row, m.top)
+		t.Errorf("after %d ups: row = %d, top = %d; want 0, 0", vis+1, m.row, m.top)
 	}
 }
 
@@ -543,6 +602,9 @@ func TestTruncateAndCenter(t *testing.T) {
 		{name: "short name kept", got: truncate("abc", 5), want: "abc"},
 		{name: "long name cut with ellipsis", got: truncate("abcdef", 4), want: "abc…"},
 		{name: "width one keeps one rune", got: truncate("abc", 1), want: "a"},
+		{name: "wide runes count two columns", got: truncate("日本語", 4), want: "日…"},
+		{name: "wide rune wider than one column is cut", got: truncate("日本", 1), want: ""},
+		{name: "zero width keeps nothing", got: truncate("abc", 0), want: ""},
 		{name: "center splits the gap, extra space on the right", got: center("x", 4), want: " x  "},
 		{name: "center with no gap", got: center("xy", 2), want: "xy"},
 	}
@@ -600,7 +662,7 @@ func forceStart(t *testing.T, tt forceCase) (Model, *fakeBackend) {
 	if tt.inVault {
 		b.inVault = map[string]bool{"alpha": true}
 	}
-	return press(t, loaded(t, b, []config.Agent{claude}), tt.key), b
+	return press(t, loaded(t, b, []config.Agent{claude}), "enter", tt.key), b
 }
 
 func TestForceRefusalAsksForForce(t *testing.T) {
@@ -628,7 +690,7 @@ func TestForceRefusalAsksForForce(t *testing.T) {
 					if want := []string{tt.op + " alpha dry=true force=false"}; !slices.Equal(b.calls, want) {
 						t.Errorf("%s: calls = %q, want %q", k, b.calls, want)
 					}
-					if m.mode != modeMatrix || m.result != "cancelled" {
+					if m.mode != modeNormal || m.result != "cancelled" {
 						t.Errorf("%s: mode = %v, result = %q; want matrix and cancelled", k, m.mode, m.result)
 					}
 				}
@@ -640,7 +702,7 @@ func TestForceRefusalAsksForForce(t *testing.T) {
 				if !slices.Equal(b.calls, want) {
 					t.Errorf("calls = %q, want %q", b.calls, want)
 				}
-				if m.mode != modeMatrix || m.resultErr || m.result != tt.op+" alpha in claude" {
+				if m.mode != modeNormal || m.resultErr || m.result != tt.op+" alpha in claude" {
 					t.Errorf("mode = %v, result = %q (err %t); want matrix and %s alpha in claude", m.mode, m.result, m.resultErr, tt.op)
 				}
 			})
@@ -650,7 +712,7 @@ func TestForceRefusalAsksForForce(t *testing.T) {
 
 func TestPlainConfirmNeverForces(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
-	m := press(t, loaded(t, b, []config.Agent{claude}), "u")
+	m := press(t, loaded(t, b, []config.Agent{claude}), "enter", "u")
 	if m.mode != modeConfirm || m.pending.act.force {
 		t.Fatalf("mode = %v, force = %t; want the plain confirm", m.mode, m.pending.act.force)
 	}

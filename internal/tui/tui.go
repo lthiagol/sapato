@@ -14,7 +14,7 @@ import (
 )
 
 // Run opens the UI on the vault in cfg and blocks until the user quits. It
-// reads keys from in and draws to out. The matrix shows the enabled agents,
+// reads keys from in and draws to out. The grid shows the enabled agents,
 // painted with cfg.UI's theme and icon set. NO_COLOR, when set to a non-empty
 // value, turns colors off.
 func Run(cfg config.Config, in io.Reader, out io.Writer) error {

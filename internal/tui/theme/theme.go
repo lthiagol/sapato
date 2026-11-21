@@ -173,7 +173,7 @@ func ByName(name string) (Theme, bool) {
 	return Theme{}, false
 }
 
-// StatusColor is the color of a matrix cell with status s.
+// StatusColor is the color of a grid cell with status s.
 func (t Theme) StatusColor(s ops.State) lipgloss.Color {
 	switch s {
 	case ops.Synced:

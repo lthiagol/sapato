@@ -78,3 +78,28 @@ func TestSetNamesMatchConfig(t *testing.T) {
 		t.Errorf("IconNames() = %v", config.IconNames())
 	}
 }
+
+// TestRuleAndPowerline checks the glyphs that draw the rules and the bar. Only the
+// nerd set joins its segments with powerline separators.
+func TestRuleAndPowerline(t *testing.T) {
+	tests := []struct {
+		name      string
+		rule      string
+		powerline bool
+	}{
+		{name: "nerd", rule: "─", powerline: true},
+		{name: "unicode", rule: "─"},
+		{name: "ascii", rule: "-"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			set, ok := ByName(tt.name)
+			if !ok {
+				t.Fatalf("ByName(%q) not found", tt.name)
+			}
+			if set.Rule != tt.rule || set.Powerline != tt.powerline {
+				t.Errorf("Rule, Powerline = %q, %t; want %q, %t", set.Rule, set.Powerline, tt.rule, tt.powerline)
+			}
+		})
+	}
+}

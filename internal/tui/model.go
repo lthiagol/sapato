@@ -19,13 +19,23 @@ import (
 	"sapato/internal/ops"
 	"sapato/internal/tui/icons"
 	"sapato/internal/tui/theme"
+	"sapato/internal/vault"
 )
 
-// mode is the screen the model is showing. Keys go to the handler of the mode.
+// screen is the page the model shows. An overlay mode may cover it.
+type screen int
+
+const (
+	screenMain screen = iota
+	screenSkill
+)
+
+// mode is an overlay on the screen. Keys go to the handler of the mode, or to
+// the screen when the mode is modeNormal.
 type mode int
 
 const (
-	modeMatrix mode = iota
+	modeNormal mode = iota
 	modeFilter
 	modeConfirm
 	modeDiff
@@ -40,13 +50,14 @@ type cell struct {
 	agent string
 }
 
-// action is one mutation of a cell, as the UI runs it through the Backend.
-// force is set only once the user has accepted a force prompt.
+// action is one mutation of a skill, as the UI runs it through the Backend. The
+// agents are the targets. force is set only once the user has accepted a force
+// prompt.
 type action struct {
-	op    string
-	skill string
-	agent config.Agent
-	force bool
+	op     string
+	skill  string
+	agents []config.Agent
+	force  bool
 }
 
 // pending is an action that waits for y or n. A plain confirm shows plan. A
@@ -66,27 +77,33 @@ type Model struct {
 	styles  styles
 	icons   icons.Set
 
-	cells  map[cell]ops.State // status of each skill in each agent; absent means blank
-	names  []string           // every skill name from the last load, sorted
-	skills []string           // names that match query: the matrix rows
-	query  string
-	row    int // cursor, as an index into skills
-	col    int // cursor, as an index into agents
-	top    int // first row shown, for scrolling
+	cells       map[cell]ops.State     // status of each skill in each agent; absent means blank
+	names       []string               // every skill name from the last load, sorted
+	vaultSkills map[string]vault.Skill // vault skills of the last load, by name
+	skills      []string               // names that match query: the grid rows
+	query       string
+	row         int // cursor, as an index into skills
+	top         int // first row shown, for scrolling
 
-	mode      mode
+	screen   screen
+	mode     mode
+	open     string          // the skill the skill screen shows
+	cur      int             // cursor over the agents of the skill screen
+	agentTop int             // first agent row shown on the skill screen, for scrolling
+	marks    map[string]bool // agent IDs marked on the skill screen
+
 	filter    textinput.Model
 	pending   pending
 	diff      viewport.Model
 	diffTitle string
 
-	result    string // last action result or error, on the status line
+	result    string // last action result or error, shown in the bar
 	resultErr bool
 
 	width, height int
 }
 
-// New returns the UI for the agents as matrix columns, painted with th and drawn
+// New returns the UI for the agents as grid columns, painted with th and drawn
 // with the glyphs of set. The caller decides which agents are shown; New does
 // not filter them.
 func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColor bool) Model {
@@ -95,21 +112,24 @@ func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColo
 	// A static cursor keeps the model free of blink commands.
 	filter.Cursor.SetMode(cursor.CursorStatic)
 	return Model{
-		backend: b,
-		agents:  agents,
-		keys:    newKeyMap(),
-		styles:  newStyles(th, noColor),
-		icons:   set,
-		cells:   map[cell]ops.State{},
-		filter:  filter,
-		diff:    viewport.New(0, 0),
+		backend:     b,
+		agents:      agents,
+		keys:        newKeyMap(),
+		styles:      newStyles(th, noColor),
+		icons:       set,
+		cells:       map[cell]ops.State{},
+		vaultSkills: map[string]vault.Skill{},
+		marks:       map[string]bool{},
+		filter:      filter,
+		diff:        viewport.New(0, 0),
 	}
 }
 
 // loadedMsg carries the result of a status load.
 type loadedMsg struct {
-	rows []ops.Row
-	err  error
+	rows   []ops.Row
+	skills []vault.Skill
+	err    error
 }
 
 // planMsg carries the dry-run plan of an action.
@@ -142,14 +162,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.diff.Width = msg.Width
-		m.diff.Height = max(1, msg.Height-diffChrome)
+		m.diff.Height = max(1, m.bodyHeight()-1)
 		m.scroll()
+		m.scrollAgents()
 	case loadedMsg:
 		if msg.err != nil {
 			m.setResult(msg.err.Error(), true)
 			return m, nil
 		}
-		m.setRows(msg.rows)
+		m.load(msg.rows, msg.skills)
 	case planMsg:
 		return m.onPlan(msg)
 	case appliedMsg:
@@ -176,10 +197,13 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case modeHelp:
 		return m.helpKey(msg)
 	}
-	return m.matrixKey(msg)
+	if m.screen == screenSkill {
+		return m.skillKey(msg)
+	}
+	return m.mainKey(msg)
 }
 
-func (m Model) matrixKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) mainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	k := m.keys
 	switch {
 	case key.Matches(msg, k.up):
@@ -188,27 +212,20 @@ func (m Model) matrixKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.down):
 		m.row = clampIndex(m.row+1, len(m.skills))
 		m.scroll()
-	case key.Matches(msg, k.left):
-		m.col = clampIndex(m.col-1, len(m.agents))
-	case key.Matches(msg, k.right):
-		m.col = clampIndex(m.col+1, len(m.agents))
-	case key.Matches(msg, k.install):
-		return m.startAction(ops.OpInstall)
-	case key.Matches(msg, k.uninstall):
-		return m.startAction(ops.OpUninstall)
-	case key.Matches(msg, k.update):
-		return m.startAction(ops.OpUpdate)
-	case key.Matches(msg, k.adopt):
-		return m.startAction(ops.OpAdopt)
-	case key.Matches(msg, k.diff):
-		skill, agent, _, ok := m.selected()
-		if !ok {
-			m.setResult(nothingSelected, true)
-			return m, nil
-		}
-		return m, diffCmd(m.backend, skill, agent)
-	case key.Matches(msg, k.refresh):
-		return m, m.loadCmd()
+	case key.Matches(msg, k.top):
+		m.row = 0
+		m.scroll()
+	case key.Matches(msg, k.bottom):
+		m.row = clampIndex(len(m.skills)-1, len(m.skills))
+		m.scroll()
+	case key.Matches(msg, k.pageUp):
+		m.row = clampIndex(m.row-m.visibleRows(), len(m.skills))
+		m.scroll()
+	case key.Matches(msg, k.pageDown):
+		m.row = clampIndex(m.row+m.visibleRows(), len(m.skills))
+		m.scroll()
+	case key.Matches(msg, k.enter):
+		return m.openSkill(), nil
 	case key.Matches(msg, k.filter):
 		m.mode = modeFilter
 		m.filter.SetValue(m.query)
@@ -218,6 +235,16 @@ func (m Model) matrixKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.filter.SetValue("")
 			m.setQuery("")
 		}
+	case key.Matches(msg, k.refresh):
+		return m, m.loadCmd()
+	case key.Matches(msg, k.adopt):
+		m.comingSoon("adopt")
+	case key.Matches(msg, k.newSkill):
+		m.comingSoon("new")
+	case key.Matches(msg, k.importTar):
+		m.comingSoon("import")
+	case key.Matches(msg, k.theme):
+		m.comingSoon("theme")
 	case key.Matches(msg, k.help):
 		m.mode = modeHelp
 	case key.Matches(msg, k.quit):
@@ -226,15 +253,130 @@ func (m Model) matrixKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// startAction plans op on the selected cell. The dry run never forces, so the
-// user sees what ops would do, or what it refuses, before anything changes.
-func (m Model) startAction(op string) (Model, tea.Cmd) {
-	skill, agent, _, ok := m.selected()
-	if !ok {
+// openSkill shows the skill under the grid cursor on the skill screen.
+func (m Model) openSkill() Model {
+	if m.row >= len(m.skills) {
 		m.setResult(nothingSelected, true)
+		return m
+	}
+	m.screen = screenSkill
+	m.open = m.skills[m.row]
+	m.cur = 0
+	m.agentTop = 0
+	m.marks = map[string]bool{}
+	return m
+}
+
+func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	k := m.keys
+	switch {
+	case key.Matches(msg, k.up):
+		m.cur = clampIndex(m.cur-1, len(m.agents))
+		m.scrollAgents()
+	case key.Matches(msg, k.down):
+		m.cur = clampIndex(m.cur+1, len(m.agents))
+		m.scrollAgents()
+	case key.Matches(msg, k.mark):
+		m.toggleMark()
+	case key.Matches(msg, k.install):
+		return m.startAction(ops.OpInstall, m.targets())
+	case key.Matches(msg, k.uninstall):
+		return m.startAction(ops.OpUninstall, m.targets())
+	case key.Matches(msg, k.update):
+		return m.startAction(ops.OpUpdate, m.targets())
+	case key.Matches(msg, k.installAll):
+		return m.startAction(ops.OpInstall, m.agents)
+	case key.Matches(msg, k.adopt):
+		return m.adopt()
+	case key.Matches(msg, k.diff):
+		return m.openDiff()
+	case key.Matches(msg, k.export):
+		m.comingSoon("export")
+	case key.Matches(msg, k.remove):
+		m.comingSoon("remove")
+	case key.Matches(msg, k.esc):
+		m.screen = screenMain
+		m.marks = map[string]bool{}
+	case key.Matches(msg, k.help):
+		m.mode = modeHelp
+	case key.Matches(msg, k.quit):
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// toggleMark marks or unmarks the agent under the cursor.
+func (m *Model) toggleMark() {
+	if m.cur >= len(m.agents) {
+		return
+	}
+	id := m.agents[m.cur].ID
+	if m.marks[id] {
+		delete(m.marks, id)
+		return
+	}
+	m.marks[id] = true
+}
+
+// targets are the agents an action on the skill screen applies to: the marked
+// agents in agent order, or the cursor's agent when none is marked.
+func (m Model) targets() []config.Agent {
+	var out []config.Agent
+	for _, a := range m.agents {
+		if m.marks[a.ID] {
+			out = append(out, a)
+		}
+	}
+	if len(out) == 0 && m.cur < len(m.agents) {
+		out = append(out, m.agents[m.cur])
+	}
+	return out
+}
+
+// startAction plans op on the open skill in agents. The dry run never forces, so
+// the user sees what ops would do, or what it refuses, before anything changes.
+// Install and update copy from the vault, so they wait on a skill the vault lacks.
+func (m Model) startAction(op string, agents []config.Agent) (Model, tea.Cmd) {
+	if len(agents) == 0 {
+		m.setResult("no enabled agents", true)
 		return m, nil
 	}
-	return m, planCmd(m.backend, action{op: op, skill: skill, agent: agent})
+	if op != ops.OpUninstall && !m.inVault(m.open) {
+		m.setResult(m.open+" is not in the vault", true)
+		return m, nil
+	}
+	return m, planCmd(m.backend, action{op: op, skill: m.open, agents: agents})
+}
+
+// adopt takes the first target whose copy is unmanaged. Adopt copies one folder
+// into the vault, so the others wait for their own adopt.
+func (m Model) adopt() (Model, tea.Cmd) {
+	for _, a := range m.targets() {
+		if m.cells[cell{m.open, a.ID}] == ops.Unmanaged {
+			return m, planCmd(m.backend, action{op: ops.OpAdopt, skill: m.open, agents: []config.Agent{a}})
+		}
+	}
+	m.setResult("adopt needs an unmanaged copy", true)
+	return m, nil
+}
+
+// diff opens the pager on the first target. The diff compares against the vault,
+// so it waits on a skill the vault lacks.
+func (m Model) openDiff() (Model, tea.Cmd) {
+	targets := m.targets()
+	if len(targets) == 0 {
+		m.setResult("no enabled agents", true)
+		return m, nil
+	}
+	if !m.inVault(m.open) {
+		m.setResult(m.open+" is not in the vault", true)
+		return m, nil
+	}
+	return m, diffCmd(m.backend, m.open, targets[0])
+}
+
+func (m *Model) comingSoon(what string) {
+	m.setResult(what+": coming soon", false)
 }
 
 // onPlan decides what a dry run leads to. A refusal that --force overrides
@@ -284,7 +426,7 @@ func forceReason(plan []ops.Action, err error) (string, bool) {
 func (m Model) confirmKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	act := m.pending.act
 	m.pending = pending{}
-	m.mode = modeMatrix
+	m.mode = modeNormal
 	if key.Matches(msg, m.keys.yes) {
 		return m, applyCmd(m.backend, act)
 	}
@@ -315,7 +457,7 @@ func (m Model) onDiff(msg diffMsg) (Model, tea.Cmd) {
 
 func (m Model) diffKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.closeView) {
-		m.mode = modeMatrix
+		m.mode = modeNormal
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -326,11 +468,11 @@ func (m Model) diffKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 func (m Model) filterKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.enter):
-		m.mode = modeMatrix
+		m.mode = modeNormal
 		m.filter.Blur()
 		return m, nil
 	case key.Matches(msg, m.keys.esc):
-		m.mode = modeMatrix
+		m.mode = modeNormal
 		m.filter.Blur()
 		m.filter.SetValue("")
 		m.setQuery("")
@@ -344,17 +486,21 @@ func (m Model) filterKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m Model) helpKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.closeView) || key.Matches(msg, m.keys.help) {
-		m.mode = modeMatrix
+		m.mode = modeNormal
 	}
 	return m, nil
 }
 
-// loadCmd reads the status of every skill in every agent.
+// loadCmd reads the status of every skill in every agent, and the vault skills.
 func (m Model) loadCmd() tea.Cmd {
 	b, agents := m.backend, m.agents
 	return func() tea.Msg {
 		rows, err := b.Status(agents)
-		return loadedMsg{rows: rows, err: err}
+		if err != nil {
+			return loadedMsg{err: err}
+		}
+		skills, err := b.Skills()
+		return loadedMsg{rows: rows, skills: skills, err: err}
 	}
 }
 
@@ -384,17 +530,16 @@ func diffCmd(b Backend, skill string, agent config.Agent) tea.Cmd {
 // perform calls the Backend for act. A dry run changes nothing.
 func perform(b Backend, act action, dryRun bool) ([]ops.Action, error) {
 	opts := ops.Options{Force: act.force, DryRun: dryRun}
-	agents := []config.Agent{act.agent}
 	skills := []string{act.skill}
 	switch act.op {
 	case ops.OpInstall:
-		return b.Install(agents, skills, opts)
+		return b.Install(act.agents, skills, opts)
 	case ops.OpUninstall:
-		return b.Uninstall(agents, skills, opts)
+		return b.Uninstall(act.agents, skills, opts)
 	case ops.OpUpdate:
-		return b.Update(agents, skills, opts)
+		return b.Update(act.agents, skills, opts)
 	case ops.OpAdopt:
-		a, err := b.Adopt(act.agent, act.skill, opts)
+		a, err := b.Adopt(act.agents[0], act.skill, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -413,7 +558,7 @@ func hasWork(plan []ops.Action) bool {
 	return false
 }
 
-// summarize describes what a plan or an applied action did, for the status line.
+// summarize describes what a plan or an applied action did, for the bar.
 func summarize(acts []ops.Action) string {
 	if len(acts) == 0 {
 		return "nothing to do"
@@ -429,33 +574,38 @@ func summarize(acts []ops.Action) string {
 	return strings.Join(parts, "; ")
 }
 
-// selected returns the cell under the cursor. ok is false when there is no
-// skill or no agent to point at.
-func (m Model) selected() (skill string, agent config.Agent, state ops.State, ok bool) {
-	if m.row >= len(m.skills) || m.col >= len(m.agents) {
-		return "", config.Agent{}, "", false
-	}
-	skill = m.skills[m.row]
-	agent = m.agents[m.col]
-	return skill, agent, m.cells[cell{skill, agent.ID}], true
-}
-
 func (m *Model) setResult(text string, isErr bool) {
 	m.result = text
 	m.resultErr = isErr
 }
 
-// setRows replaces the statuses after a load. The cursor stays on its skill
-// when that skill is still listed.
-func (m *Model) setRows(rows []ops.Row) {
+// load replaces the statuses and vault skills after a load. The grid cursor
+// stays on its skill when that skill is still listed. The skill screen goes back
+// to the grid when its skill is gone.
+func (m *Model) load(rows []ops.Row, skills []vault.Skill) {
 	m.cells = make(map[cell]ops.State, len(rows))
 	names := make(map[string]bool)
 	for _, r := range rows {
 		m.cells[cell{r.Skill, r.Agent}] = r.Status
 		names[r.Skill] = true
 	}
+	m.vaultSkills = make(map[string]vault.Skill, len(skills))
+	for _, s := range skills {
+		m.vaultSkills[s.Name] = s
+	}
 	m.names = slices.Sorted(maps.Keys(names))
 	m.rebuild()
+	if m.screen == screenSkill && !slices.Contains(m.names, m.open) {
+		m.screen = screenMain
+	}
+	m.cur = clampIndex(m.cur, len(m.agents))
+	m.scrollAgents()
+}
+
+// inVault reports whether the vault holds a skill called name, valid or not.
+func (m Model) inVault(name string) bool {
+	_, ok := m.vaultSkills[name]
+	return ok
 }
 
 func (m *Model) setQuery(q string) {
@@ -465,7 +615,10 @@ func (m *Model) setQuery(q string) {
 
 // rebuild applies the query to the skill names.
 func (m *Model) rebuild() {
-	prev, _, _, _ := m.selected()
+	prev := ""
+	if m.row < len(m.skills) {
+		prev = m.skills[m.row]
+	}
 	q := strings.ToLower(m.query)
 	var shown []string
 	for _, name := range m.names {
@@ -481,23 +634,42 @@ func (m *Model) rebuild() {
 	m.scroll()
 }
 
-// visibleRows is how many skill rows fit beside the chrome. Before the first
-// size message it is every row.
+// visibleRows is how many grid rows fit in the body beside the column header and
+// its rule. Before the first size message it is every row.
 func (m Model) visibleRows() int {
 	if m.height == 0 {
 		return max(1, len(m.skills))
 	}
-	return max(1, m.height-matrixChrome)
+	return max(1, m.bodyHeight()-2)
+}
+
+// agentRowsShown is how many agent rows fit under the info block and its rule.
+// Before the first size message it is every row.
+func (m Model) agentRowsShown() int {
+	if m.height == 0 {
+		return max(1, len(m.agents))
+	}
+	info, _ := m.skillBlock(m.layoutWidth())
+	return max(1, m.bodyHeight()-len(info)-1)
 }
 
 // scroll moves the window of rows so the cursor row is shown.
 func (m *Model) scroll() {
-	vis := m.visibleRows()
-	if m.row < m.top {
-		m.top = m.row
+	scrollWindow(&m.top, m.row, m.visibleRows())
+}
+
+// scrollAgents moves the window of agent rows so the cursor agent is shown.
+func (m *Model) scrollAgents() {
+	scrollWindow(&m.agentTop, m.cur, m.agentRowsShown())
+}
+
+// scrollWindow moves the first row of a window of vis rows, so that cursor is in it.
+func scrollWindow(top *int, cursor, vis int) {
+	if cursor < *top {
+		*top = cursor
 	}
-	if m.row >= m.top+vis {
-		m.top = m.row - vis + 1
+	if cursor >= *top+vis {
+		*top = cursor - vis + 1
 	}
 }
 

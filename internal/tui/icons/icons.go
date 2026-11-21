@@ -5,10 +5,13 @@ package icons
 import "sapato/internal/ops"
 
 // Set is one glyph set. Status has a glyph for each of the eight states.
+// Powerline is set for the nerd set, whose separators join colored segments.
 type Set struct {
 	Status            map[ops.State]string
 	Marker, Mark      string
 	SepRight, SepLeft string
+	Rule              string
+	Powerline         bool
 }
 
 // sets holds the glyph sets by name. Names match config.IconNames.
@@ -24,10 +27,12 @@ var sets = map[string]Set{
 			ops.Unmanaged:    "\uf059",
 			ops.Missing:      "\uf071",
 		},
-		Marker:   "\uf054",
-		Mark:     "\uf14a",
-		SepRight: "\ue0b0",
-		SepLeft:  "\ue0b2",
+		Marker:    "\uf054",
+		Mark:      "\uf14a",
+		SepRight:  "\ue0b0",
+		SepLeft:   "\ue0b2",
+		Rule:      "─",
+		Powerline: true,
 	},
 	"unicode": {
 		Status: map[ops.State]string{
@@ -44,6 +49,7 @@ var sets = map[string]Set{
 		Mark:     "■",
 		SepRight: "│",
 		SepLeft:  "│",
+		Rule:     "─",
 	},
 	"ascii": {
 		Status: map[ops.State]string{
@@ -60,6 +66,7 @@ var sets = map[string]Set{
 		Mark:     "*",
 		SepRight: "|",
 		SepLeft:  "|",
+		Rule:     "-",
 	},
 }
 

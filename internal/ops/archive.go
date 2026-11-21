@@ -34,7 +34,8 @@ type manifest struct {
 
 // isArchive reports whether src names a gzip tarball. A tarball is always a local file.
 func isArchive(src string) bool {
-	return strings.HasSuffix(src, ".tar.gz") || strings.HasSuffix(src, ".tgz")
+	lower := strings.ToLower(src)
+	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
 }
 
 // importArchive copies the skills of the tarball src into the vault (spec §11). The
@@ -125,6 +126,11 @@ func extractArchive(src, dir string) (*manifest, error) {
 		}
 		if n > maxArchiveEntries {
 			return nil, fmt.Errorf("archive has more than %d entries", maxArchiveEntries)
+		}
+		// git archive starts with a pax global header. It carries no file, so it is
+		// skipped once counted.
+		if hdr.Typeflag == tar.TypeXGlobalHeader {
+			continue
 		}
 		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeDir {
 			return nil, fmt.Errorf("entry %q: type %q is not allowed, only files and folders", hdr.Name, hdr.Typeflag)

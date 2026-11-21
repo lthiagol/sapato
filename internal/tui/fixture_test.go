@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"sapato/internal/config"
@@ -49,7 +50,7 @@ func TestFixtureStatesShowInMatrix(t *testing.T) {
 
 func TestFixtureAdoptCopiesIntoVault(t *testing.T) {
 	m, vaultDir, _ := fixtureModel(t)
-	m = press(t, at(t, m, "hand-made-skill", "claude"), "a")
+	m = press(t, onSkill(t, m, "hand-made-skill", "claude"), "a")
 	if _, err := os.Stat(filepath.Join(vaultDir, "skills", "hand-made-skill", "SKILL.md")); err != nil {
 		t.Errorf("vault lacks the adopted skill: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestFixtureAdoptCopiesIntoVault(t *testing.T) {
 
 func TestFixtureInstallCopiesNotInstalledSkill(t *testing.T) {
 	m, _, claudeDir := fixtureModel(t)
-	m = press(t, at(t, m, "mocked-skill-00004", "claude"), "i")
+	m = press(t, onSkill(t, m, "mocked-skill-00004", "claude"), "i")
 	if _, err := os.Stat(filepath.Join(claudeDir, "mocked-skill-00004", "SKILL.md")); err != nil {
 		t.Errorf("install left no SKILL.md: %v", err)
 	}
@@ -77,16 +78,16 @@ func TestFixtureUpdateOfModifiedCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	declined := press(t, at(t, m, "mocked-skill-00003", "claude"), "U", "n")
+	declined := press(t, onSkill(t, m, "mocked-skill-00003", "claude"), "U", "n")
 	after, err := os.ReadFile(skillFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(after) != string(before) || declined.mode != modeMatrix {
+	if string(after) != string(before) || declined.mode != modeNormal {
 		t.Errorf("declined update changed the copy or left the prompt open (mode %v)", declined.mode)
 	}
 
-	accepted := press(t, at(t, m, "mocked-skill-00003", "claude"), "U", "y")
+	accepted := press(t, onSkill(t, m, "mocked-skill-00003", "claude"), "U", "y")
 	if got := accepted.cells[cell{"mocked-skill-00003", "claude"}]; got != ops.Synced {
 		t.Errorf("after forced update: state = %q, want synced; result %q", got, accepted.result)
 	}
@@ -94,7 +95,7 @@ func TestFixtureUpdateOfModifiedCopy(t *testing.T) {
 
 func TestFixtureUninstallOfOrphanedCopy(t *testing.T) {
 	m, _, claudeDir := fixtureModel(t)
-	waiting := press(t, at(t, m, "mocked-skill-00099", "claude"), "u")
+	waiting := press(t, onSkill(t, m, "mocked-skill-00099", "claude"), "u")
 	if waiting.mode != modeConfirm {
 		t.Fatalf("mode = %v, want confirm", waiting.mode)
 	}
@@ -120,14 +121,14 @@ func TestFixtureUninstallOfModifiedCopyNeedsForce(t *testing.T) {
 		}
 	}
 
-	asked := press(t, at(t, m, "mocked-skill-00003", "claude"), "u")
+	asked := press(t, onSkill(t, m, "mocked-skill-00003", "claude"), "u")
 	if asked.mode != modeConfirm || !asked.pending.act.force {
 		t.Fatalf("mode = %v, force = %t; want the force prompt", asked.mode, asked.pending.act.force)
 	}
 	intact("after u")
 
 	declined := press(t, asked, "n")
-	if declined.mode != modeMatrix {
+	if declined.mode != modeNormal {
 		t.Errorf("mode after n = %v, want matrix", declined.mode)
 	}
 	intact("after n")
@@ -146,8 +147,31 @@ func TestFixtureUninstallOfModifiedCopyNeedsForce(t *testing.T) {
 
 func TestFixtureOpsRefusalIsShown(t *testing.T) {
 	m, _, _ := fixtureModel(t)
-	m = press(t, at(t, m, "mocked-skill-00098", "claude"), "i")
+	m = press(t, onSkill(t, m, "mocked-skill-00098", "claude"), "i")
 	if !m.resultErr || m.result == "" {
 		t.Errorf("result = %q (err %t), want the ops error", m.result, m.resultErr)
+	}
+}
+
+func TestFixtureDiffOfModifiedCopy(t *testing.T) {
+	m, _, _ := fixtureModel(t)
+	m = press(t, onSkill(t, m, "mocked-skill-00003", "claude"), "d")
+	if m.mode != modeDiff {
+		t.Fatalf("mode = %v, result %q; want the diff pager", m.mode, m.result)
+	}
+	if view := m.View(); !strings.Contains(view, "diff mocked-skill-00003 in claude") {
+		t.Errorf("diff view lacks its title:\n%s", view)
+	}
+}
+
+func TestFixtureSkillScreenShowsTheVaultSkill(t *testing.T) {
+	m, _, _ := fixtureModel(t)
+	m = sized(t, m, 120, 40)
+	m = press(t, onSkill(t, m, "mocked-skill-00001", "claude"), "esc", "enter")
+	view := m.View()
+	for _, want := range []string{"mocked-skill-00001", "valid", "synced"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("skill screen lacks %q:\n%s", want, view)
+		}
 	}
 }

@@ -183,6 +183,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 ### 9.3 Skill screen (mode `SKILL`)
 
 - Info block: name, version (or `-`), short hash, valid/invalid; description (wrapped, max 3 lines); vault path; if invalid, each problem in red.
+- Layout: info block and agent list form one block, horizontally centered like the main grid, separated by a rule the block's width. Block width = widest non-description line (title, fields, problems, vault path, agent rows), at least 60, at most the terminal width; the description wraps to that width (max 3 lines, `…` when cut). Long paths are truncated with `…` so nothing exceeds the terminal width.
 - Agent list: one row per enabled agent: marker, agent id, status icon + status word, installed path (if present). Cursor per agent row. `space` toggles a mark; actions apply to marked rows, or to the cursor row if none marked.
 - Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all enabled agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
 - Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with a bar message.

@@ -45,6 +45,10 @@ func makeTarball(t *testing.T, entries ...tarEntry) string {
 			mode = 0o644
 		}
 		hdr := &tar.Header{Name: e.name, Typeflag: typ, Mode: mode, Linkname: e.link}
+		if typ == tar.TypeXGlobalHeader {
+			// The writer takes a global header from its pax records alone.
+			hdr = &tar.Header{Name: e.name, Typeflag: typ, PAXRecords: map[string]string{"comment": string(e.body)}}
+		}
 		if typ == tar.TypeReg {
 			hdr.Size = int64(len(e.body))
 		}
@@ -77,6 +81,12 @@ func skillEntries(name string) []tarEntry {
 		{name: name + "/scripts/", typeflag: tar.TypeDir},
 		{name: name + "/scripts/run.sh", body: []byte("#!/bin/sh\n"), mode: 0o755},
 	}
+}
+
+// gitGlobalHeader returns the pax global header that git archive writes first. Its
+// body is the commit id, stored as the "comment" record.
+func gitGlobalHeader() tarEntry {
+	return tarEntry{name: "pax_global_header", typeflag: tar.TypeXGlobalHeader, body: []byte(strings.Repeat("a", 40))}
 }
 
 // manifestEntry returns a manifest entry with the given content.
@@ -187,6 +197,22 @@ func TestImportArchive(t *testing.T) {
 			name:    "archive with only a manifest is refused",
 			entries: entries([]tarEntry{manifestEntry(`{"format":1,"skills":{}}`)}),
 			wantErr: "holds no skills",
+		},
+		{
+			name:       "git pax global header is skipped",
+			entries:    entries([]tarEntry{gitGlobalHeader()}, skillEntries("tar-skill")),
+			wantSkills: []string{"tar-skill"},
+		},
+		{
+			name: "pax global header counts toward the entry cap",
+			entries: func() []tarEntry {
+				es := []tarEntry{gitGlobalHeader()}
+				for i := range maxArchiveEntries {
+					es = append(es, tarEntry{name: fmt.Sprintf("d%05d/", i), typeflag: tar.TypeDir})
+				}
+				return es
+			},
+			wantErr: "more than 10000 entries",
 		},
 		{
 			name:    "absolute path is refused",
@@ -439,4 +465,40 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestIsArchiveIgnoresCase(t *testing.T) {
+	tests := []struct {
+		src  string
+		want bool
+	}{
+		{"skill.tar.gz", true},
+		{"skill.tgz", true},
+		{"SKILL.TGZ", true},
+		{"Skill.TAR.GZ", true},
+		{"skill.tar", false},
+		{"skill.zip", false},
+	}
+	for _, tt := range tests {
+		if got := isArchive(tt.src); got != tt.want {
+			t.Errorf("isArchive(%q) = %t, want %t", tt.src, got, tt.want)
+		}
+	}
+}
+
+func TestImportArchiveWithUppercaseExtension(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	v := emptyVault(t)
+	src := filepath.Join(t.TempDir(), "Skill.TAR.GZ")
+	if err := os.Rename(makeTarball(t, skillEntries("tar-skill")...), src); err != nil {
+		t.Fatal(err)
+	}
+
+	actions, err := Import(v, src, ImportOptions{})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	if len(actions) != 1 || actions[0].Skill != "tar-skill" {
+		t.Errorf("actions = %+v, want one import of tar-skill", actions)
+	}
 }

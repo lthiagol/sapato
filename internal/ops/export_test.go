@@ -2,6 +2,7 @@ package ops
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -122,6 +123,17 @@ func TestExportIsDeterministic(t *testing.T) {
 	}
 	for _, skills := range [][]string{{"mocked-skill-00006"}, fixtureNames} {
 		first := export(skills...)
+		// Move every file's mtime, so the export must ignore mtimes to match.
+		later := time.Now().Add(72 * time.Hour)
+		err := filepath.WalkDir(v.Path, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			return os.Chtimes(p, later, later)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 		second := export(skills...)
 		if !bytes.Equal(first, second) {
 			t.Errorf("export of %v differs between two runs", skills)
