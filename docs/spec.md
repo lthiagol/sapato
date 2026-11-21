@@ -191,9 +191,9 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 - **Details (right)**, takes the remaining width; scrolls with `pgup`/`pgdn` if taller than the body:
   1. `version <v|->   hash <short>   <valid icon> valid|invalid`
   2. description, wrapped to the pane, max 3 lines (`…` when cut)
-  3. `vault <path>` (or `not in vault`); each problem in red if invalid
-  4. blank line, then the cursor agent's section: `<agent>  <icon> <status>` + ` · installed <YYYY-MM-DD HH:MM>` from the lock when managed, then the installed path on the next line (indented)
-  5. blank line, then `FILES (N)` and a tree of the skill's files using the hashing walk (§4: no dot-paths, no symlinks): directories as `name/`, children indented 2 spaces per level, sorted; each file shows the exec glyph (§9.5) if executable and a right-aligned human size (`B`, `KiB`, `MiB`, one decimal above 1 KiB). Files come from the vault copy; if the skill isn't in the vault, from the cursor agent's installed copy, titled `FILES (N, installed in <agent>)`; if neither exists, `no files`.
+  3. `vault  <path>` (or `vault  not in vault` with the value dimmed); labels share one column width; each problem in red if invalid
+  4. blank line, then the cursor agent's section: `<agent>  <icon> <status>` + ` · installed <YYYY-MM-DD HH:MM>` (local time) from the lock when managed, then the installed path on the next line (indented)
+  5. blank line, then `FILES (N)` and a tree of the skill's files using the hashing walk (§4: no dot-paths, no symlinks): a root `SKILL.md` first, then directories as `name/` before files, each sorted by name, children indented 2 spaces per level; each file shows the exec glyph (§9.5) if executable and a right-aligned human size (`B`, `KiB`, `MiB`, one decimal above 1 KiB). Files come from the vault copy; if the skill isn't in the vault, from the cursor agent's installed copy, titled `FILES (N, installed in <agent>)`; if neither exists, `no files`.
 - Narrow terminals (< 70 cols): sidebar stacked above details, both full width.
 - All widths via `lipgloss.Width`; long values truncated with `…`; nothing exceeds the terminal.
 - Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all enabled agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.

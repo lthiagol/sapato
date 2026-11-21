@@ -8,6 +8,7 @@ import (
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
+	"sapato/internal/target"
 	"sapato/internal/vault"
 )
 
@@ -26,6 +27,8 @@ type Backend interface {
 	ExportName(skill string) (string, error)
 	Export(skill, path string) ([]ops.Action, error)
 	Diff(agent config.Agent, skill string) ([]ops.FileChange, error)
+	Files(dir string) ([]ops.File, error)
+	LockEntry(agentDir, skill string) (target.LockEntry, bool, error)
 }
 
 // opsBackend calls the ops package on one vault. agents are every configured
@@ -86,6 +89,16 @@ func (b opsBackend) Export(skill, path string) ([]ops.Action, error) {
 
 func (b opsBackend) Diff(agent config.Agent, skill string) ([]ops.FileChange, error) {
 	return ops.Diff(b.v, agent, skill)
+}
+
+// Files lists the files of the skill folder dir, as the skill screen shows them.
+func (b opsBackend) Files(dir string) ([]ops.File, error) {
+	return ops.SkillFiles(dir)
+}
+
+// LockEntry reads the lock entry of a skill in the agent folder agentDir.
+func (b opsBackend) LockEntry(agentDir, skill string) (target.LockEntry, bool, error) {
+	return ops.LockEntry(agentDir, skill)
 }
 
 // expandHome replaces a leading ~ with the home dir, as config paths are (spec §2).

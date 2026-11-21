@@ -41,6 +41,8 @@ type styles struct {
 	added   lipgloss.Style
 	removed lipgloss.Style
 	rule    lipgloss.Style
+	border  lipgloss.Style // the borders of the skill screen's panes
+	focus   lipgloss.Style // the border of the focused pane, the sidebar
 	bar     lipgloss.Style
 	barDim  lipgloss.Style
 	barSub  lipgloss.Style
@@ -74,6 +76,8 @@ func newStyles(th theme.Theme, noColor bool) styles {
 		added:   paint(th.Green, ""),
 		removed: paint(th.Red, ""),
 		rule:    paint(th.Overlay, ""),
+		border:  paint(th.Overlay, ""),
+		focus:   paint(th.Accent, ""),
 		bar:     paint(th.Text, th.Mantle),
 		barDim:  paint(th.Overlay, th.Mantle),
 		barSub:  paint(th.Subtext, th.Mantle),
@@ -86,6 +90,9 @@ func newStyles(th theme.Theme, noColor bool) styles {
 	s.row = base.Reverse(true)
 	if !noColor {
 		s.row = base.Background(th.Surface)
+	} else {
+		// Without color the focused border is bold, so the focus still shows.
+		s.focus = s.bold
 	}
 	return s
 }

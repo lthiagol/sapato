@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -18,9 +17,6 @@ var artW = maxWidth(sapatoArt)
 // minTallHeight is the terminal height from which the full header shows. Shorter
 // terminals get the one-line header.
 const minTallHeight = 30
-
-// labelW is the width of the label column of the skill screen's info block.
-const labelW = 13
 
 // View draws the frame of the screen: the header, the rule, the body of the
 // screen or overlay, and the bar.
@@ -251,159 +247,6 @@ func (m Model) spaces(n int, selected bool) string {
 	return m.on(selected, lipgloss.NewStyle()).Render(strings.Repeat(" ", n))
 }
 
-// skillBody is the skill screen: the info block, a rule as wide as the block, then
-// the agent rows. The block is centered, and every line fits the terminal.
-func (m Model) skillBody() []string {
-	w := m.layoutWidth()
-	info, blockW := m.skillBlock(w)
-	agents := m.agentLines(w)
-	lines := append(info, m.styles.rule.Render(strings.Repeat(m.icons.Rule, blockW)))
-	return m.centered(append(lines, agents...), blockW)
-}
-
-// skillBlock is the info block of the skill screen and the width it is centered
-// at. The width is the widest line other than the description, at least 60 columns
-// and at most w. The description is wrapped to that width, so it comes last.
-func (m Model) skillBlock(w int) (info []string, blockW int) {
-	blockW = min(w, max(60, maxWidth(m.skillInfo(w, nil)), maxWidth(m.agentRows(w))))
-	return m.skillInfo(w, m.descriptionLines(blockW)), blockW
-}
-
-// agentRows is one line per enabled agent of the open skill, cut to w columns.
-func (m Model) agentRows(w int) []string {
-	if len(m.agents) == 0 {
-		return []string{m.styles.dim.Render(truncate("No enabled agents. Enable one in the config.", w))}
-	}
-	idW, statusW := 0, 0
-	for _, a := range m.agents {
-		idW = max(idW, lipgloss.Width(a.ID))
-	}
-	for _, st := range states {
-		statusW = max(statusW, lipgloss.Width(string(st.state)))
-	}
-	statusW = max(statusW, lipgloss.Width("absent"))
-	lines := make([]string, len(m.agents))
-	for i, a := range m.agents {
-		lines[i] = m.agentRow(i, a, idW, statusW, w)
-	}
-	return lines
-}
-
-// agentLines is the agent list of the skill screen: the rows of its window, from
-// agentTop.
-func (m Model) agentLines(w int) []string {
-	rows := m.agentRows(w)
-	if len(m.agents) == 0 {
-		return rows
-	}
-	end := min(len(m.agents), m.agentTop+m.agentRowsShown())
-	return rows[min(m.agentTop, end):end]
-}
-
-// skillInfo is the info block of the open skill, cut to w columns: name, version,
-// hash, validity, its problems, then desc, and the vault path. desc is the
-// description lines, nil to leave them out.
-func (m Model) skillInfo(w int, desc []string) []string {
-	s, inVault := m.vaultSkills[m.open]
-	valueW := w - labelW
-	lines := []string{m.styles.bold.Render(truncate(m.open, w))}
-	field := func(label, value string) {
-		lines = append(lines, m.styles.dim.Render(pad(label, labelW))+value)
-	}
-	if !inVault {
-		field("version", m.styles.dim.Render("-"))
-		field("hash", m.styles.dim.Render("-"))
-		field("status", m.styles.dim.Render("not in the vault"))
-		field("vault", m.styles.dim.Render("not in the vault"))
-		return lines
-	}
-	field("version", truncate(orDash(s.Version), valueW))
-	field("hash", truncate(orDash(shortHash(s.Hash)), valueW))
-	if s.Valid {
-		field("status", m.styles.glyph[ops.Synced].Render("valid"))
-	} else {
-		field("status", m.styles.fail.Render("invalid"))
-		for _, p := range s.Problems {
-			lines = append(lines, pad("", labelW)+m.styles.fail.Render(truncate(p, valueW)))
-		}
-	}
-	lines = append(lines, desc...)
-	field("vault", truncate(s.Dir, valueW))
-	return lines
-}
-
-// descriptionLines wraps the open skill's description to three lines in blockW
-// columns, the first after its label. When the text runs longer, the third line
-// ends with an ellipsis. It is nil when the skill is not in the vault.
-func (m Model) descriptionLines(blockW int) []string {
-	s, inVault := m.vaultSkills[m.open]
-	if !inVault {
-		return nil
-	}
-	if s.Description == "" {
-		return []string{m.styles.dim.Render(pad("description", labelW)) + m.styles.dim.Render("-")}
-	}
-	width := max(1, blockW-labelW)
-	if m.width == 0 {
-		width = 60
-	}
-	wrapped := strings.Split(lipgloss.NewStyle().Width(width).Render(s.Description), "\n")
-	for i, l := range wrapped {
-		wrapped[i] = strings.TrimRight(l, " ")
-	}
-	if len(wrapped) > 3 {
-		wrapped = append(wrapped[:2], truncate(strings.Join(wrapped[2:], " "), width))
-	}
-	lines := make([]string, 0, len(wrapped))
-	for i, l := range wrapped {
-		label := pad("", labelW)
-		if i == 0 {
-			label = m.styles.dim.Render(pad("description", labelW))
-		}
-		lines = append(lines, label+l)
-	}
-	return lines
-}
-
-// agentRow is one agent of the skill screen: cursor marker, mark, agent id, status
-// icon and word, and the installed path when the folder is there. The path is cut
-// to w columns, and left out when no room is left for it.
-func (m Model) agentRow(i int, a config.Agent, idW, statusW, w int) string {
-	selected := i == m.cur
-	marker, mark := "  ", "  "
-	if selected {
-		marker = pad(m.icons.Marker, 2)
-	}
-	if m.marks[a.ID] {
-		mark = pad(m.icons.Mark, 2)
-	}
-	glyph, word, style := " ", "absent", m.styles.dim
-	path := ""
-	if state, ok := m.cells[cell{m.open, a.ID}]; ok {
-		glyph, word, style = m.icons.Status[state], string(state), m.styles.glyph[state]
-		switch state {
-		case ops.Synced, ops.Outdated, ops.Modified, ops.Orphaned, ops.Unmanaged:
-			path = filepath.Join(a.Path, m.open)
-		}
-	}
-	idStyle := lipgloss.NewStyle()
-	if selected {
-		idStyle = m.styles.bold
-	}
-	var b strings.Builder
-	b.WriteString(m.on(selected, m.styles.accent).Render(marker))
-	b.WriteString(m.on(selected, m.styles.accent).Render(mark))
-	b.WriteString(m.on(selected, idStyle).Render(pad(a.ID, idW)))
-	b.WriteString(m.spaces(2, selected))
-	b.WriteString(m.on(selected, style).Render(glyph + " " + pad(word, statusW)))
-	head := b.String()
-	room := w - lipgloss.Width(head) - 2
-	if path == "" || room < 2 {
-		return head
-	}
-	return head + m.spaces(2, selected) + m.on(selected, m.styles.dim).Render(truncate(path, room))
-}
-
 // confirmBody shows a plain confirm with its plan, or a force prompt in warning style.
 // A discard of the NEW editor asks for its own plain confirm. Values longer than w
 // are cut with an ellipsis.
@@ -479,25 +322,27 @@ func (m Model) screenHints() (own, global []key.Binding) {
 }
 
 // barHints lists the bindings the bar shows for the current mode, as the screen's
-// own keys and its global keys. The other modes have no global keys.
+// own keys and its global keys. The modes where L opens LOG list it as their global
+// key. Text inputs have none, since L is typed there.
 func (m Model) barHints() (own, global []key.Binding) {
+	logOnly := []key.Binding{m.keys.log}
 	switch m.mode {
 	case modeFilter:
 		return m.keys.filterHints(), nil
 	case modeConfirm:
 		return []key.Binding{m.keys.yes, m.keys.no}, nil
 	case modeDiff:
-		return []key.Binding{m.keys.closeView, scrollHint}, nil
+		return []key.Binding{m.keys.closeView, scrollHint}, logOnly
 	case modeHelp:
-		return []key.Binding{m.keys.closeView}, nil
+		return []key.Binding{m.keys.closeView}, logOnly
 	case modeAdopt:
-		return []key.Binding{moveHint, adoptHint, backHint}, nil
+		return []key.Binding{moveHint, adoptHint, backHint}, logOnly
 	case modeNew:
 		return []key.Binding{m.keys.save, cancelHint}, nil
 	case modeImport, modeExport:
 		return []key.Binding{runHint, cancelHint}, nil
 	case modeTheme:
-		return []key.Binding{moveHint, keepHint, restoreHint}, nil
+		return []key.Binding{moveHint, keepHint, restoreHint}, logOnly
 	case modeLog:
 		return []key.Binding{scrollHint, m.keys.closeView}, nil
 	}
@@ -509,17 +354,28 @@ func (m Model) barHints() (own, global []key.Binding) {
 // hints, with the global keys last. Both rows fill the width in the Mantle background.
 func (m Model) bar() []string {
 	name := m.modeName()
-	first := m.styles.badge(name).Render(" " + name + " ")
-	first += m.styles.bar.Render(" ") + m.styles.barSub.Render(m.counts())
-	if m.mode == modeFilter {
-		first += m.styles.barSub.Render(" · ") + m.filter.View()
-	}
+	badge := m.styles.badge(name).Render(" " + name + " ")
+	first := badge + m.styles.bar.Render(" ") + m.barCounts(m.layoutWidth()-lipgloss.Width(badge)-1)
 	own, global := m.barHints()
 	second := m.styles.bar.Render(" ") + m.styles.barDim.Render(hintText(own, global, m.layoutWidth()-1))
 	if m.width == 0 {
 		return []string{first, second}
 	}
 	return []string{m.barRow(first), m.barRow(second)}
+}
+
+// barCounts is the counts segment of bar row 1, cut to w columns with an ellipsis.
+// While filtering, the filter input follows the counts when it fits. When it does
+// not, the counts and the query are cut together.
+func (m Model) barCounts(w int) string {
+	if m.mode != modeFilter {
+		return m.styles.barSub.Render(truncate(m.counts(), w))
+	}
+	full := m.styles.barSub.Render(m.counts()+" · ") + m.filter.View()
+	if lipgloss.Width(full) <= w {
+		return full
+	}
+	return m.styles.barSub.Render(truncate(m.counts()+" · / "+m.query, w))
 }
 
 // hintText joins the hints to w columns. The global keys come last and are kept

@@ -99,7 +99,7 @@ func (k keyMap) filterHints() []key.Binding {
 
 // skillHints lists the skill screen's own bindings in hint order.
 func (k keyMap) skillHints() []key.Binding {
-	return []key.Binding{moveHint, k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.export, k.remove}
+	return []key.Binding{moveHint, pageHint, k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.export, k.remove}
 }
 
 // skillGlobals lists the skill screen's global bindings, back first. The bar shows

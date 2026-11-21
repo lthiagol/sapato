@@ -18,6 +18,7 @@ type File struct {
 	Rel  string      // slash-separated path relative to the folder
 	Path string      // path on disk
 	Mode fs.FileMode // permission bits
+	Size int64       // size in bytes
 }
 
 // Files lists the regular files under dir, sorted by Rel. Paths with a
@@ -55,6 +56,7 @@ func Files(dir string) ([]File, error) {
 			Rel:  filepath.ToSlash(rel),
 			Path: path,
 			Mode: info.Mode().Perm(),
+			Size: info.Size(),
 		})
 		return nil
 	})

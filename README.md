@@ -89,9 +89,10 @@ Optional `metadata.version` is shown but never trusted. Versions are tracked by 
 
 Run `sapato` (or `make run` for the mocked data).
 
-- **Main screen:** status grid of every skill. `↑↓`/`jk` move, `enter` open a skill, `/` filter, `r` refresh, `a` adopt an unmanaged skill, `n` new skill (paste a `SKILL.md`, `ctrl+s` saves), `I` import, `t` theme picker (live preview, not saved), `?` help, `q` quit.
-- **Skill screen:** info plus one row per agent. `space` marks agents, then `i` install, `u` uninstall, `U` update, `d` diff, `a` adopt, `A` install everywhere, `x` export, `D` remove from vault, `esc` back.
+- **Main screen:** status grid of every skill. `↑↓`/`jk` move, `enter` open a skill, `/` filter, `r` refresh, `a` adopt an unmanaged skill, `n` new skill (paste a `SKILL.md`, `ctrl+s` saves), `I` import, `t` theme picker (live preview, not saved), `L` log, `?` help, `q` quit.
+- **Skill screen:** agent sidebar (status per agent) and a details pane with version, hash, description, the selected agent's install info and a FILES tree (sizes, executables marked). `space` marks agents, then `i` install, `u` uninstall, `U` update, `d` diff, `a` adopt, `A` install everywhere, `x` export, `D` remove from vault, `pgup`/`pgdn` scroll details, `esc` back.
 - Anything that would overwrite or delete local edits asks a separate, red **force** confirmation.
+- Results show as notifications in the bottom-right (success/info 4s, errors 10s). `L` opens the session log.
 
 ## Status
 

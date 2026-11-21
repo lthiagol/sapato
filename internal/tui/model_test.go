@@ -14,6 +14,7 @@ import (
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
+	"sapato/internal/target"
 	"sapato/internal/tui/icons"
 	"sapato/internal/tui/theme"
 	"sapato/internal/vault"
@@ -35,6 +36,12 @@ type fakeBackend struct {
 	// is in the vault, except one with an orphaned row, and an invalid row makes
 	// its skill invalid.
 	vaultSkills []vault.Skill
+	// files, by folder, is what Files lists. entries, by a skill's folder in an
+	// agent, is what LockEntry returns.
+	files   map[string][]ops.File
+	entries map[string]target.LockEntry
+	// filesErr and lockErr are what Files and LockEntry fail with.
+	filesErr, lockErr error
 }
 
 func (f *fakeBackend) Status(_ []config.Agent) ([]ops.Row, error) {
@@ -143,6 +150,20 @@ func (f *fakeBackend) Adopt(agent config.Agent, skill string, opts ops.Options) 
 func (f *fakeBackend) Diff(_ config.Agent, skill string) ([]ops.FileChange, error) {
 	f.calls = append(f.calls, "diff "+skill)
 	return f.changes, f.diffErr
+}
+
+// Files and LockEntry are reads the skill screen makes on every cursor move, so
+// they are not recorded in calls.
+func (f *fakeBackend) Files(dir string) ([]ops.File, error) {
+	if f.filesErr != nil {
+		return nil, f.filesErr
+	}
+	return f.files[dir], nil
+}
+
+func (f *fakeBackend) LockEntry(agentDir, skill string) (target.LockEntry, bool, error) {
+	e, ok := f.entries[filepath.Join(agentDir, skill)]
+	return e, ok, f.lockErr
 }
 
 var (
@@ -268,7 +289,8 @@ func onRow(t *testing.T, m Model, skill string) Model {
 	return m
 }
 
-// onSkill opens skill on the skill screen, with the agent cursor on agent.
+// onSkill opens skill on the skill screen, with the agent cursor on agent, and
+// loads the detail of that agent.
 func onSkill(t *testing.T, m Model, skill, agent string) Model {
 	t.Helper()
 	m = press(t, onRow(t, m, skill), "enter")
@@ -276,6 +298,7 @@ func onSkill(t *testing.T, m Model, skill, agent string) Model {
 	if m.screen != screenSkill || m.open != skill || m.cur < 0 {
 		t.Fatalf("skill screen for %s in %s not open (screen %v, cursor %d)", skill, agent, m.screen, m.cur)
 	}
+	m, _ = settle(t, m, m.detailCmd())
 	return m
 }
 

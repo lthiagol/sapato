@@ -3,9 +3,11 @@
 package tui
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -19,6 +21,7 @@ import (
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
+	"sapato/internal/target"
 	"sapato/internal/tui/icons"
 	"sapato/internal/tui/theme"
 	"sapato/internal/vault"
@@ -98,12 +101,14 @@ type Model struct {
 	row         int // cursor, as an index into skills
 	top         int // first row shown, for scrolling
 
-	screen   screen
-	mode     mode
-	open     string          // the skill the skill screen shows
-	cur      int             // cursor over the agents of the skill screen
-	agentTop int             // first agent row shown on the skill screen, for scrolling
-	marks    map[string]bool // agent IDs marked on the skill screen
+	screen    screen
+	mode      mode
+	open      string          // the skill the skill screen shows
+	cur       int             // cursor over the agents of the skill screen
+	agentTop  int             // first sidebar row shown on the skill screen, for scrolling
+	detailTop int             // first line of the details pane shown, for scrolling
+	marks     map[string]bool // agent IDs marked on the skill screen
+	detail    detail          // what the skill screen reads for the cursor's agent
 
 	filter    textinput.Model
 	pending   pending
@@ -181,6 +186,24 @@ type appliedMsg struct {
 	err  error
 }
 
+// detail is what the skill screen reads for the agent under its cursor: the files of
+// the vault copy, or of the installed copy when the vault lacks the skill, and the
+// agent's lock entry. It is loaded for one skill and agent at a time.
+type detail struct {
+	skill     string // the skill it was loaded for; "" until one is loaded
+	agent     string // the agent's ID, "" when none is enabled
+	files     []ops.File
+	installed string // the agent whose installed copy the files are, "" for the vault copy
+	entry     target.LockEntry
+	managed   bool // the lock has an entry for the agent
+}
+
+// detailMsg carries a loaded detail of the skill screen.
+type detailMsg struct {
+	detail detail
+	err    error
+}
+
 // diffMsg carries the file changes of one installed skill.
 type diffMsg struct {
 	skill   string
@@ -222,6 +245,9 @@ func (m Model) handle(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.refresh {
 			m.notify(noteInfo, "refreshed", fmt.Sprintf("%d skills", len(m.names)))
 		}
+		return m, m.detailCmd()
+	case detailMsg:
+		return m.onDetail(msg), nil
 	case planMsg:
 		return m.onPlan(msg)
 	case appliedMsg:
@@ -289,7 +315,7 @@ func (m Model) mainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.row = clampIndex(m.row+m.visibleRows(), len(m.skills))
 		m.scroll()
 	case key.Matches(msg, k.enter):
-		return m.openSkill(), nil
+		return m.openSkill()
 	case key.Matches(msg, k.filter):
 		m.mode = modeFilter
 		m.filter.SetValue(m.query)
@@ -317,18 +343,21 @@ func (m Model) mainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// openSkill shows the skill under the grid cursor on the skill screen.
-func (m Model) openSkill() Model {
+// openSkill shows the skill under the grid cursor on the skill screen, and loads
+// its detail for the first agent.
+func (m Model) openSkill() (Model, tea.Cmd) {
 	if m.row >= len(m.skills) {
 		m.notify(noteError, "error", nothingSelected)
-		return m
+		return m, nil
 	}
 	m.screen = screenSkill
 	m.open = m.skills[m.row]
 	m.cur = 0
 	m.agentTop = 0
+	m.detailTop = 0
 	m.marks = map[string]bool{}
-	return m
+	m.detail = detail{}
+	return m, m.detailCmd()
 }
 
 func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -337,9 +366,15 @@ func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.up):
 		m.cur = clampIndex(m.cur-1, len(m.agents))
 		m.scrollAgents()
+		return m, m.detailCmd()
 	case key.Matches(msg, k.down):
 		m.cur = clampIndex(m.cur+1, len(m.agents))
 		m.scrollAgents()
+		return m, m.detailCmd()
+	case key.Matches(msg, k.pageUp):
+		m.scrollDetails(-m.detailRows())
+	case key.Matches(msg, k.pageDown):
+		m.scrollDetails(m.detailRows())
 	case key.Matches(msg, k.mark):
 		m.toggleMark()
 	case key.Matches(msg, k.install):
@@ -367,6 +402,62 @@ func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+// cursorID is the ID of the agent under the skill screen's cursor, or "" when none
+// is enabled.
+func (m Model) cursorID() string {
+	if m.cur < len(m.agents) {
+		return m.agents[m.cur].ID
+	}
+	return ""
+}
+
+// detailCmd loads the detail of the open skill for the agent under the cursor. The
+// files are those of the vault copy, or of the installed copy when the vault lacks
+// the skill and the agent holds one. It is nil off the skill screen.
+func (m Model) detailCmd() tea.Cmd {
+	if m.screen != screenSkill {
+		return nil
+	}
+	d := detail{skill: m.open, agent: m.cursorID()}
+	var agentPath string
+	if m.cur < len(m.agents) {
+		agentPath = m.agents[m.cur].Path
+	}
+	var folder string
+	if s, ok := m.vaultSkills[m.open]; ok {
+		folder = s.Dir
+	} else if d.agent != "" && hasFolder(m.cells[cell{m.open, d.agent}]) {
+		folder, d.installed = filepath.Join(agentPath, m.open), d.agent
+	}
+	b, skill := m.backend, m.open
+	return func() tea.Msg {
+		// Both reads run even when one fails, so the other still shows. A failed read
+		// leaves its part empty.
+		out := d
+		var filesErr, lockErr error
+		if folder != "" {
+			out.files, filesErr = b.Files(folder)
+		}
+		if out.agent != "" {
+			out.entry, out.managed, lockErr = b.LockEntry(agentPath, skill)
+		}
+		return detailMsg{detail: out, err: cmp.Or(filesErr, lockErr)}
+	}
+}
+
+// onDetail keeps a loaded detail when it is for the skill and agent the screen shows
+// now, even when a read of it failed, and notifies the failure. A late one, for
+// another skill or agent, is dropped.
+func (m Model) onDetail(msg detailMsg) Model {
+	if msg.err != nil {
+		m.notify(noteError, "error", msg.err.Error())
+	}
+	if m.screen == screenSkill && msg.detail.skill == m.open && msg.detail.agent == m.cursorID() {
+		m.detail = msg.detail
+	}
+	return m
 }
 
 // toggleMark marks or unmarks the agent under the cursor.
@@ -733,14 +824,21 @@ func (m Model) visibleRows() int {
 	return max(1, m.bodyHeight()-2)
 }
 
-// agentRowsShown is how many agent rows fit under the info block and its rule.
-// Before the first size message it is every row.
+// agentRowsShown is how many sidebar rows fit, at least one.
 func (m Model) agentRowsShown() int {
-	if m.height == 0 {
-		return max(1, len(m.agents))
-	}
-	info, _ := m.skillBlock(m.layoutWidth())
-	return max(1, m.bodyHeight()-len(info)-1)
+	return max(1, m.skillLayout().side.h-2)
+}
+
+// detailRows is how many lines of the details pane show, at least one.
+func (m Model) detailRows() int {
+	return max(1, m.skillLayout().detail.h-2)
+}
+
+// scrollDetails moves the details pane by delta lines, within its content.
+func (m *Model) scrollDetails(delta int) {
+	lay := m.skillLayout()
+	lines := m.detailLines(lay.detail.w - 4)
+	m.detailTop = max(0, min(m.detailTop+delta, len(lines)-max(0, lay.detail.h-2)))
 }
 
 // scroll moves the window of rows so the cursor row is shown.

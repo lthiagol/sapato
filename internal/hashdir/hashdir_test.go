@@ -233,16 +233,17 @@ func TestFilesListsRegularFilesSorted(t *testing.T) {
 	want := []struct {
 		rel  string
 		mode fs.FileMode
+		size int64
 	}{
-		{"a/x.md", 0o644},
-		{"b.txt", 0o755},
+		{"a/x.md", 0o644, 2},
+		{"b.txt", 0o755, 3},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Files() = %+v, want %d files", got, len(want))
 	}
 	for i, w := range want {
-		if got[i].Rel != w.rel || got[i].Mode != w.mode {
-			t.Errorf("file %d = {%s %v}, want {%s %v}", i, got[i].Rel, got[i].Mode, w.rel, w.mode)
+		if got[i].Rel != w.rel || got[i].Mode != w.mode || got[i].Size != w.size {
+			t.Errorf("file %d = {%s %v %d}, want {%s %v %d}", i, got[i].Rel, got[i].Mode, got[i].Size, w.rel, w.mode, w.size)
 		}
 		if got[i].Path != filepath.Join(dir, filepath.FromSlash(w.rel)) {
 			t.Errorf("file %d Path = %s", i, got[i].Path)

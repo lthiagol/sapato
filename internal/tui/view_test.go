@@ -14,7 +14,7 @@ import (
 )
 
 // layoutSizes are the terminal sizes the layout must hold at.
-var layoutSizes = [][2]int{{80, 24}, {120, 40}, {200, 60}}
+var layoutSizes = [][2]int{{60, 20}, {80, 24}, {120, 40}, {200, 60}}
 
 // layoutModel returns the UI over two agents and a few skills, sized to w×h,
 // with the fake backend it reads from.
@@ -297,157 +297,6 @@ func skillScreenModel(t *testing.T, w, h int) Model {
 	return press(t, sized(t, loaded(t, b, agents), w, h), "enter")
 }
 
-// bodyMargins returns the columns left of the screen body's block and the columns
-// right of it. The block is the widest non-blank line of the body.
-func bodyMargins(t *testing.T, m Model) (left, right int) {
-	t.Helper()
-	lines := strings.Split(m.View(), "\n")
-	left, widest := m.width, 0
-	for _, line := range lines[m.headerHeight()+1 : len(lines)-2] {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		left = min(left, leadingSpaces(line))
-		widest = max(widest, lipgloss.Width(line))
-	}
-	return left, m.width - widest
-}
-
-func TestSkillScreenIsCentered(t *testing.T) {
-	for _, size := range layoutSizes {
-		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
-			m := skillScreenModel(t, size[0], size[1])
-			if left, right := bodyMargins(t, m); left-right > 1 || right-left > 1 {
-				t.Errorf("left margin %d, right %d; want equal within 1:\n%s", left, right, m.View())
-			}
-		})
-	}
-}
-
-func TestSkillRuleIsAsWideAsTheBlock(t *testing.T) {
-	for _, size := range layoutSizes {
-		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
-			m := skillScreenModel(t, size[0], size[1])
-			lines := strings.Split(m.View(), "\n")
-			rule := -1
-			for i := m.headerHeight() + 1; i < len(lines) && rule < 0; i++ {
-				if text := strings.TrimSpace(lines[i]); text != "" && strings.Trim(text, m.icons.Rule) == "" {
-					rule = i
-				}
-			}
-			if rule < 0 {
-				t.Fatalf("no rule under the header:\n%s", m.View())
-			}
-			vaultLine, agentLine := -1, -1
-			for i, line := range lines {
-				if vaultLine < 0 && strings.Contains(line, "vault") {
-					vaultLine = i
-				}
-				if agentLine < 0 && strings.Contains(line, "cursor") {
-					agentLine = i
-				}
-			}
-			if !(vaultLine < rule && rule < agentLine) {
-				t.Errorf("rule at line %d, want between the vault line %d and the agents at %d", rule, vaultLine, agentLine)
-			}
-			pad, widest := leadingSpaces(lines[rule]), 0
-			for i := m.headerHeight() + 1; i < len(lines)-2; i++ {
-				if i != rule {
-					widest = max(widest, lipgloss.Width(lines[i]))
-				}
-			}
-			if got, want := lipgloss.Width(strings.TrimSpace(lines[rule])), widest-pad; got != want {
-				t.Errorf("rule is %d columns, want the block width %d:\n%s", got, want, m.View())
-			}
-		})
-	}
-}
-
-func TestSkillScreenCutsLongValuesWithAnEllipsis(t *testing.T) {
-	m := skillScreenModel(t, 80, 24)
-	view := m.View()
-	for _, label := range []string{"vault", "claude", "problem text"} {
-		line := lineWith(t, view, label)
-		if !strings.HasSuffix(strings.TrimRight(line, " "), "…") {
-			t.Errorf("line with %q does not end with an ellipsis: %q", label, line)
-		}
-	}
-	for _, line := range strings.Split(view, "\n") {
-		if w := lipgloss.Width(line); w > 80 {
-			t.Errorf("line is %d columns, want at most 80: %q", w, line)
-		}
-	}
-}
-
-func TestSkillDescriptionEndsItsThirdLineWithAnEllipsis(t *testing.T) {
-	lines := strings.Split(skillScreenModel(t, 80, 24).View(), "\n")
-	label := -1
-	for i, line := range lines {
-		if strings.Contains(line, "description") {
-			label = i
-			break
-		}
-	}
-	if label < 0 || label+2 >= len(lines) {
-		t.Fatalf("no description block:\n%s", strings.Join(lines, "\n"))
-	}
-	if third := strings.TrimRight(lines[label+2], " "); !strings.HasSuffix(third, "…") {
-		t.Errorf("third description line %q does not end with an ellipsis", third)
-	}
-}
-
-// shortSkillModel opens beta, whose values are all short, with the given description.
-func shortSkillModel(t *testing.T, w, h int, desc string) Model {
-	t.Helper()
-	b := &fakeBackend{
-		rows: []ops.Row{row("beta", "claude", ops.Synced), row("beta", "cursor", ops.NotInstalled)},
-		vaultSkills: []vault.Skill{{
-			Name: "beta", Dir: "/vault/beta", Version: "1.0.0", Hash: "sha256:0123456789abcdef",
-			Valid: true, Description: desc,
-		}},
-	}
-	return press(t, sized(t, loaded(t, b, []config.Agent{claude, cursorAgent}), w, h), "enter")
-}
-
-func TestSkillBlockIgnoresTheDescription(t *testing.T) {
-	m := shortSkillModel(t, 140, 40, strings.Repeat("Reviews the pending changes on a branch and says what to fix first. ", 6))
-	left, right := bodyMargins(t, m)
-	if left <= 10 {
-		t.Errorf("left margin %d, want more than 10: the description must not widen the block:\n%s", left, m.View())
-	}
-	if left-right > 1 || right-left > 1 {
-		t.Errorf("left margin %d, right %d; want equal within 1:\n%s", left, right, m.View())
-	}
-	blockW := m.width - left - right
-	lines := strings.Split(m.View(), "\n")
-	label := -1
-	for i, line := range lines {
-		if strings.Contains(line, "description") {
-			label = i
-			break
-		}
-	}
-	if label < 0 || label+2 >= len(lines) {
-		t.Fatalf("no description block:\n%s", m.View())
-	}
-	for _, line := range lines[label : label+3] {
-		if w := lipgloss.Width(strings.TrimLeft(line, " ")); w > blockW {
-			t.Errorf("description line is %d columns, want at most the block width %d: %q", w, blockW, line)
-		}
-	}
-	if third := strings.TrimRight(lines[label+2], " "); !strings.HasSuffix(third, "…") {
-		t.Errorf("third description line %q does not end with an ellipsis", third)
-	}
-}
-
-func TestSkillBlockIsAtLeast60WideAt80(t *testing.T) {
-	m := shortSkillModel(t, 80, 24, "Short.")
-	left, right := bodyMargins(t, m)
-	if got := m.width - left - right; got < 60 {
-		t.Errorf("block is %d columns, want at least 60:\n%s", got, m.View())
-	}
-}
-
 func TestSkillScreenKeepsTheCursorAgentInView(t *testing.T) {
 	var agents []config.Agent
 	for i := range 20 {
@@ -524,6 +373,22 @@ func TestBarHintsCutAtTheEnd(t *testing.T) {
 	}
 }
 
+// bodyMargins returns the columns left of the screen body's block and the columns
+// right of it. The block is the widest non-blank line of the body.
+func bodyMargins(t *testing.T, m Model) (left, right int) {
+	t.Helper()
+	lines := strings.Split(m.View(), "\n")
+	left, widest := m.width, 0
+	for _, line := range lines[m.headerHeight()+1 : len(lines)-2] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		left = min(left, leadingSpaces(line))
+		widest = max(widest, lipgloss.Width(line))
+	}
+	return left, m.width - widest
+}
+
 func TestSkillInfoShowsTheVaultSkill(t *testing.T) {
 	b := &fakeBackend{
 		rows: []ops.Row{row("alpha", "claude", ops.Synced), row("alpha", "cursor", ops.NotInstalled)},
@@ -543,18 +408,10 @@ func TestSkillInfoShowsTheVaultSkill(t *testing.T) {
 	if descLines := strings.Count(view, "Reviews") + strings.Count(view, "branch") + strings.Count(view, "first."); descLines > 3 {
 		t.Errorf("description spans more than 3 lines:\n%s", view)
 	}
-	for _, want := range []string{"claude", "synced", "/agents/claude/alpha", "cursor", "not-installed"} {
+	for _, want := range []string{"claude", "synced", "cursor", "not inst.", "/agents/claude/alpha"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("agent rows lack %q:\n%s", want, view)
+			t.Errorf("sidebar and agent section lack %q:\n%s", want, view)
 		}
-	}
-}
-
-func TestSkillScreenWithoutVaultCopy(t *testing.T) {
-	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Orphaned)}}
-	m := press(t, sized(t, loaded(t, b, []config.Agent{claude}), 120, 40), "enter")
-	if view := m.View(); !strings.Contains(view, "not in the vault") {
-		t.Errorf("skill screen does not say the vault lacks the skill:\n%s", view)
 	}
 }
 
