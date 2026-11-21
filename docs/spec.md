@@ -128,7 +128,7 @@ Glob vs literal: a skill named literally that hits a hard refusal (invalid on in
 | `sapato status [skill…] [-a …]` | table of skill × agent status; `--json` |
 | `sapato install <skill…> -a …` | copy vault skill to target; record lock. Refuses if target folder exists and is `unmanaged` or `modified` unless `--force`. Invalid skills are never installed |
 | `sapato uninstall <skill…> -a …` | remove managed skill folder + lock entry. Refuses `unmanaged` (never delete what we don't own) and `modified` unless `--force` |
-| `sapato update [skill…] [-a …]` | re-install every `outdated` skill (default: all skills, all agents). `modified` skipped unless `--force` |
+| `sapato update [skill…] [-a …]` | re-install every `outdated` skill (default: all skills, all agents). `modified` skipped unless `--force` (reported as skips, never call failures, even for literal names) |
 | `sapato diff <skill> -a <id>` | unified diff vault vs installed copy (file list + per-file text diff) |
 | `sapato import <path-or-git-url> [--name n]` | copy a skill folder into the vault (git URLs: shallow clone to temp dir, optional `--subdir`). Validates first; refuses if name exists unless `--force` |
 | `sapato adopt <skill> -a <id>` | copy an `unmanaged` target skill into the vault, then record it in that target's lock (it becomes `synced`) |

@@ -25,11 +25,16 @@ func (f *agentFlags) add(cmd *cobra.Command) {
 
 // resolve returns the agents the flags name. Exactly one of -a and --all is required.
 func (f agentFlags) resolve(agents []config.Agent) ([]config.Agent, error) {
-	switch {
-	case f.all && len(f.ids) > 0:
-		return nil, usageError{errors.New("use either --agent or --all, not both")}
-	case !f.all && len(f.ids) == 0:
+	if !f.all && len(f.ids) == 0 {
 		return nil, usageError{errors.New("choose agents with --agent or --all")}
+	}
+	return f.resolveDefault(agents)
+}
+
+// resolveDefault is resolve, except that neither flag selects the enabled agents.
+func (f agentFlags) resolveDefault(agents []config.Agent) ([]config.Agent, error) {
+	if f.all && len(f.ids) > 0 {
+		return nil, usageError{errors.New("use either --agent or --all, not both")}
 	}
 	selected, err := ops.SelectAgents(agents, f.ids)
 	if err != nil {
@@ -67,6 +72,38 @@ func newInstallCmd(opts *globalOpts) *cobra.Command {
 	}
 	agents.add(cmd)
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite unmanaged or modified skill folders")
+	return cmd
+}
+
+func newUpdateCmd(opts *globalOpts) *cobra.Command {
+	var agents agentFlags
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "update [skill...]",
+		Short: "Re-install outdated skills (default: all skills in enabled agents)",
+		Args:  usageArgs(cobra.ArbitraryArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig(opts)
+			if err != nil {
+				return err
+			}
+			selected, err := agents.resolveDefault(cfg.Agents)
+			if err != nil {
+				return err
+			}
+			v, err := vault.Open(cfg.Vault)
+			if err != nil {
+				return err
+			}
+			actions, err := ops.Update(v, selected, args, ops.Options{Force: force, DryRun: opts.dryRun})
+			if err != nil {
+				return err
+			}
+			return printActions(cmd.OutOrStdout(), actions, opts.dryRun)
+		},
+	}
+	agents.add(cmd)
+	cmd.Flags().BoolVar(&force, "force", false, "also re-install modified skill folders")
 	return cmd
 }
 

@@ -9,3 +9,6 @@ Spec sections: 7 (`import`, `adopt`, `remove`).
 
 ## Done when
 - Tests for each (git import tested with a local repo created in the test via `git init`; skip if `git` missing). Refusals tested.
+
+## Carry-over from 04
+- `internal/ops/diff.go:129`: compare only the exec bit (`mode&0o111 != 0`), matching the hash rule (spec §4), so `diff` and `status` agree. Add a test.

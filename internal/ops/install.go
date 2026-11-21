@@ -22,13 +22,15 @@ import (
 const (
 	OpInstall   = "install"
 	OpUninstall = "uninstall"
+	OpUpdate    = "update"
 	OpSkip      = "skip"
 )
 
 // Options are the flags of the mutating operations.
 type Options struct {
 	// Force overwrites an unmanaged or modified folder on install, and removes
-	// a modified one on uninstall. Unmanaged folders are never removed.
+	// or overwrites a modified one on uninstall and update. Unmanaged folders
+	// are never removed.
 	Force bool
 	// DryRun returns the plan and changes nothing.
 	DryRun bool
@@ -105,17 +107,25 @@ func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Option
 	if opts.DryRun {
 		return actions, nil
 	}
+	if err := applyActions(actions, byName, dirs); err != nil {
+		return nil, err
+	}
+	return actions, nil
+}
 
+// applyActions installs the skill of each action that is not a skip. The
+// actions come from a plan that already passed its checks.
+func applyActions(actions []Action, byName map[string]vault.Skill, dirs map[string]string) error {
 	now := time.Now().UTC()
 	for _, a := range actions {
 		if a.Op == OpSkip {
 			continue
 		}
 		if err := installSkill(dirs[a.Agent], byName[a.Skill], now); err != nil {
-			return nil, fmt.Errorf("install %s in %s: %w", a.Skill, a.Agent, err)
+			return fmt.Errorf("%s %s in %s: %w", a.Op, a.Skill, a.Agent, err)
 		}
 	}
-	return actions, nil
+	return nil
 }
 
 // installSkill copies s into the agent directory dir and records it in the lock.
@@ -202,10 +212,18 @@ func copyRegular(src, dst string, mode fs.FileMode) error {
 	return os.Chmod(dst, mode)
 }
 
-// checkArgs rejects a call with no agents or no skill arguments.
-func checkArgs(agents []config.Agent, skills []string) error {
+// checkAgents rejects a call with no agents.
+func checkAgents(agents []config.Agent) error {
 	if len(agents) == 0 {
 		return errors.New("no agents selected")
+	}
+	return nil
+}
+
+// checkArgs rejects a call with no agents or no skill arguments.
+func checkArgs(agents []config.Agent, skills []string) error {
+	if err := checkAgents(agents); err != nil {
+		return err
 	}
 	if len(skills) == 0 {
 		return errors.New("no skills given")
