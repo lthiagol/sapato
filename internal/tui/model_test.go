@@ -167,7 +167,8 @@ func press(t *testing.T, m Model, keys ...string) Model {
 // so far are forgotten, so a test sees only its own calls.
 func loaded(t *testing.T, b *fakeBackend, agents []config.Agent) Model {
 	t.Helper()
-	m := New(b, agents, true)
+	th, set := testLook(t)
+	m := New(b, agents, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	b.calls = nil
 	return m
@@ -472,15 +473,16 @@ func TestEveryStatusHasAGlyphInTheMatrix(t *testing.T) {
 	for i, st := range states {
 		rows = append(rows, row(fmt.Sprintf("skill-%d", i), "claude", st.state))
 	}
-	m := New(&fakeBackend{rows: rows}, []config.Agent{claude}, true)
+	th, set := testLook(t)
+	m := New(&fakeBackend{rows: rows}, []config.Agent{claude}, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	view := m.View()
 	if len(states) != 8 {
 		t.Fatalf("states has %d entries, want the 8 of spec §6", len(states))
 	}
 	for _, st := range states {
-		if !strings.Contains(view, st.glyph) {
-			t.Errorf("matrix lacks the glyph %q of %s", st.glyph, st.state)
+		if glyph := set.Status[st.state]; !strings.Contains(view, glyph) {
+			t.Errorf("matrix lacks the glyph %q of %s", glyph, st.state)
 		}
 	}
 }
@@ -519,8 +521,9 @@ func TestViewFitsTheWidth(t *testing.T) {
 }
 
 func TestNoColorDropsForegroundColors(t *testing.T) {
-	plain := newStyles(true)
-	colored := newStyles(false)
+	th, _ := testLook(t)
+	plain := newStyles(th, true)
+	colored := newStyles(th, false)
 	for _, st := range states {
 		if _, ok := plain.glyph[st.state].GetForeground().(lipgloss.NoColor); !ok {
 			t.Errorf("NO_COLOR glyph style for %s sets a foreground", st.state)

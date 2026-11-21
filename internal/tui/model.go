@@ -17,6 +17,8 @@ import (
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
+	"sapato/internal/tui/icons"
+	"sapato/internal/tui/theme"
 )
 
 // mode is the screen the model is showing. Keys go to the handler of the mode.
@@ -62,6 +64,7 @@ type Model struct {
 	agents  []config.Agent
 	keys    keyMap
 	styles  styles
+	icons   icons.Set
 
 	cells  map[cell]ops.State // status of each skill in each agent; absent means blank
 	names  []string           // every skill name from the last load, sorted
@@ -83,9 +86,10 @@ type Model struct {
 	width, height int
 }
 
-// New returns the UI for the agents as matrix columns. The caller decides
-// which agents are shown; New does not filter them.
-func New(b Backend, agents []config.Agent, noColor bool) Model {
+// New returns the UI for the agents as matrix columns, painted with th and drawn
+// with the glyphs of set. The caller decides which agents are shown; New does
+// not filter them.
+func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColor bool) Model {
 	filter := textinput.New()
 	filter.Prompt = "/ "
 	// A static cursor keeps the model free of blink commands.
@@ -94,7 +98,8 @@ func New(b Backend, agents []config.Agent, noColor bool) Model {
 		backend: b,
 		agents:  agents,
 		keys:    newKeyMap(),
-		styles:  newStyles(noColor),
+		styles:  newStyles(th, noColor),
+		icons:   set,
 		cells:   map[cell]ops.State{},
 		filter:  filter,
 		diff:    viewport.New(0, 0),

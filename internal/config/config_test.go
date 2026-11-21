@@ -155,6 +155,43 @@ func TestLoad(t *testing.T) {
 			content: "[agents.claude]\npath = \"\"\n",
 			wantErr: "agents.claude.path must not be empty",
 		},
+		{
+			name:    "ui defaults",
+			content: "",
+			check: func(t *testing.T, _ string, cfg Config) {
+				if want := (UI{Theme: "catppuccin-mocha", Icons: "nerd"}); cfg.UI != want {
+					t.Errorf("ui = %+v, want %+v", cfg.UI, want)
+				}
+			},
+		},
+		{
+			name:    "ui overrides",
+			content: "[ui]\ntheme = \"nord-light\"\nicons = \"ascii\"\n",
+			check: func(t *testing.T, _ string, cfg Config) {
+				if want := (UI{Theme: "nord-light", Icons: "ascii"}); cfg.UI != want {
+					t.Errorf("ui = %+v, want %+v", cfg.UI, want)
+				}
+			},
+		},
+		{
+			name:    "ui theme alone keeps the default icon set",
+			content: "[ui]\ntheme = \"dracula\"\n",
+			check: func(t *testing.T, _ string, cfg Config) {
+				if want := (UI{Theme: "dracula", Icons: "nerd"}); cfg.UI != want {
+					t.Errorf("ui = %+v, want %+v", cfg.UI, want)
+				}
+			},
+		},
+		{
+			name:    "unknown theme is an error listing the valid names",
+			content: "[ui]\ntheme = \"solarized\"\n",
+			wantErr: `ui.theme: unknown theme "solarized" (valid: catppuccin-latte, catppuccin-frappe, catppuccin-macchiato, catppuccin-mocha, dracula, dracula-alucard, nord, nord-light)`,
+		},
+		{
+			name:    "unknown icon set is an error listing the valid names",
+			content: "[ui]\nicons = \"emoji\"\n",
+			wantErr: `ui.icons: unknown icon set "emoji" (valid: nerd, unicode, ascii)`,
+		},
 	}
 
 	for _, tt := range tests {

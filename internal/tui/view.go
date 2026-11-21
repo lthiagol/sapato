@@ -67,9 +67,9 @@ func (m Model) layout() (nameW int, colW []int) {
 func (m Model) headerLine(nameW int, colW []int) string {
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", 2))
-	b.WriteString(m.styles.dim.Render(pad("SKILL", nameW)))
+	b.WriteString(m.styles.accent.Render(pad("SKILL", nameW)))
 	for i, a := range m.agents {
-		b.WriteString(m.styles.dim.Render(center(strings.ToUpper(a.ID), colW[i])))
+		b.WriteString(m.styles.accent.Render(center(strings.ToUpper(a.ID), colW[i])))
 	}
 	return b.String()
 }
@@ -100,7 +100,7 @@ func (m Model) rowLine(i int, nameW int, colW []int) string {
 	selectedRow := i == m.row
 	marker, nameStyle := "  ", lipgloss.NewStyle()
 	if selectedRow {
-		marker, nameStyle = "> ", m.styles.bold
+		marker, nameStyle = pad(m.icons.Marker, 2), m.styles.bold
 	}
 	var b strings.Builder
 	b.WriteString(marker)
@@ -115,10 +115,7 @@ func (m Model) rowLine(i int, nameW int, colW []int) string {
 func (m Model) cellText(skill string, agent config.Agent, selected bool, w int) string {
 	glyph, style := " ", lipgloss.NewStyle()
 	if state, ok := m.cells[cell{skill, agent.ID}]; ok {
-		glyph = "?"
-		if info, known := stateInfoOf(state); known {
-			glyph = info.glyph
-		}
+		glyph = m.icons.Status[state]
 		style = m.styles.glyph[state]
 	}
 	if selected {
@@ -199,7 +196,7 @@ func (m Model) diffView() string {
 func (m Model) helpView() string {
 	lines := []string{m.styles.bold.Render("Help"), "", m.styles.bold.Render("Cells")}
 	for _, st := range states {
-		lines = append(lines, fmt.Sprintf("  %s  %s %s", m.styles.glyph[st.state].Render(st.glyph), pad(string(st.state), 13), st.desc))
+		lines = append(lines, fmt.Sprintf("  %s  %s %s", m.styles.glyph[st.state].Render(m.icons.Status[st.state]), pad(string(st.state), 13), st.desc))
 	}
 	lines = append(lines, "", m.styles.bold.Render("Keys"))
 	for _, b := range append(m.keys.matrixHints(), m.keys.esc) {
@@ -263,16 +260,6 @@ func (m Model) fit(lines []string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-// stateInfoOf returns the legend entry of state. ok is false for an unknown state.
-func stateInfoOf(state ops.State) (info stateInfo, ok bool) {
-	for _, st := range states {
-		if st.state == state {
-			return st, true
-		}
-	}
-	return stateInfo{}, false
 }
 
 // describe renders one planned action for the confirm screen.

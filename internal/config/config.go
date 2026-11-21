@@ -27,6 +27,13 @@ type Agent struct {
 type Config struct {
 	Vault  string
 	Agents []Agent
+	UI     UI
+}
+
+// UI is the [ui] section: the color theme and icon set of the TUI.
+type UI struct {
+	Theme string
+	Icons string
 }
 
 type agentSettings struct {
@@ -34,12 +41,53 @@ type agentSettings struct {
 	Enabled *bool   `toml:"enabled"`
 }
 
+type uiSettings struct {
+	Theme *string `toml:"theme"`
+	Icons *string `toml:"icons"`
+}
+
 type file struct {
 	Vault  *string                  `toml:"vault"`
 	Agents map[string]agentSettings `toml:"agents"`
+	UI     uiSettings               `toml:"ui"`
 }
 
-const defaultVault = "~/sapato-vault"
+const (
+	defaultVault = "~/sapato-vault"
+	defaultTheme = "catppuccin-mocha"
+	defaultIcons = "nerd"
+)
+
+// themeNames lists the themes of spec §9.5 in UI order. internal/tui/theme holds the same names.
+var themeNames = []string{
+	"catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
+	"dracula", "dracula-alucard", "nord", "nord-light",
+}
+
+// iconNames lists the icon sets of spec §9.5. internal/tui/icons holds the same names.
+var iconNames = []string{"nerd", "unicode", "ascii"}
+
+// ThemeNames returns the valid theme names in UI order.
+func ThemeNames() []string { return slices.Clone(themeNames) }
+
+// IconNames returns the valid icon set names.
+func IconNames() []string { return slices.Clone(iconNames) }
+
+// ValidateTheme returns an error listing the valid names when name is not a theme.
+func ValidateTheme(name string) error {
+	if slices.Contains(themeNames, name) {
+		return nil
+	}
+	return fmt.Errorf("unknown theme %q (valid: %s)", name, strings.Join(themeNames, ", "))
+}
+
+// ValidateIcons returns an error listing the valid names when name is not an icon set.
+func ValidateIcons(name string) error {
+	if slices.Contains(iconNames, name) {
+		return nil
+	}
+	return fmt.Errorf("unknown icon set %q (valid: %s)", name, strings.Join(iconNames, ", "))
+}
 
 // builtinAgents lists the built-in agents in spec order. Paths use ~.
 var builtinAgents = []Agent{
@@ -70,7 +118,7 @@ func Load(path string, home string) (Config, error) {
 		}
 	}
 
-	cfg := Config{Vault: defaultVault}
+	cfg := Config{Vault: defaultVault, UI: UI{Theme: defaultTheme, Icons: defaultIcons}}
 	if f.Vault != nil {
 		if *f.Vault == "" {
 			return Config{}, fmt.Errorf("config %s: vault must not be empty", path)
@@ -78,6 +126,19 @@ func Load(path string, home string) (Config, error) {
 		cfg.Vault = *f.Vault
 	}
 	cfg.Vault = expandHome(cfg.Vault, home)
+
+	if f.UI.Theme != nil {
+		cfg.UI.Theme = *f.UI.Theme
+	}
+	if err := ValidateTheme(cfg.UI.Theme); err != nil {
+		return Config{}, fmt.Errorf("config %s: ui.theme: %w", path, err)
+	}
+	if f.UI.Icons != nil {
+		cfg.UI.Icons = *f.UI.Icons
+	}
+	if err := ValidateIcons(cfg.UI.Icons); err != nil {
+		return Config{}, fmt.Errorf("config %s: ui.icons: %w", path, err)
+	}
 
 	for _, def := range builtinAgents {
 		a := def

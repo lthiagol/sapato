@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,6 +26,8 @@ func (e usageError) Unwrap() error { return e.err }
 type globalOpts struct {
 	configPath string
 	dryRun     bool
+	theme      string
+	icons      string
 }
 
 // Run executes sapato with args and returns the process exit code.
@@ -60,6 +63,8 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 	root.PersistentFlags().StringVar(&opts.configPath, "config", "", "config file (default ~/.config/sapato/config.toml)")
 	root.PersistentFlags().BoolVar(&opts.dryRun, "dry-run", false, "print the plan of mutating commands and change nothing")
+	root.PersistentFlags().StringVar(&opts.theme, "theme", "", "UI theme, overrides [ui] theme: "+strings.Join(config.ThemeNames(), ", "))
+	root.PersistentFlags().StringVar(&opts.icons, "icons", "", "UI icon set, overrides [ui] icons: "+strings.Join(config.IconNames(), ", "))
 	root.AddCommand(newConfigCmd(&opts), newInitCmd(&opts), newListCmd(&opts), newStatusCmd(&opts),
 		newInstallCmd(&opts), newUninstallCmd(&opts), newUpdateCmd(&opts), newDiffCmd(&opts),
 		newImportCmd(&opts), newAdoptCmd(&opts), newRemoveCmd(&opts), newSyncCmd(&opts), newDoctorCmd(&opts),
@@ -77,10 +82,28 @@ func usageArgs(v cobra.PositionalArgs) cobra.PositionalArgs {
 	}
 }
 
+// loadConfig reads the config and applies the --theme and --icons flags over
+// its [ui] section. A flag value that is not a known name is a usage error.
 func loadConfig(opts *globalOpts) (config.Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return config.Config{}, fmt.Errorf("find home dir: %w", err)
 	}
-	return config.Load(opts.configPath, home)
+	cfg, err := config.Load(opts.configPath, home)
+	if err != nil {
+		return config.Config{}, err
+	}
+	if opts.theme != "" {
+		if err := config.ValidateTheme(opts.theme); err != nil {
+			return config.Config{}, usageError{fmt.Errorf("--theme: %w", err)}
+		}
+		cfg.UI.Theme = opts.theme
+	}
+	if opts.icons != "" {
+		if err := config.ValidateIcons(opts.icons); err != nil {
+			return config.Config{}, usageError{fmt.Errorf("--icons: %w", err)}
+		}
+		cfg.UI.Icons = opts.icons
+	}
+	return cfg, nil
 }
