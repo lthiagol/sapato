@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "mocked-skill-00001": {
+      "hash": "sha256:0c90b5bb9e286edfbc151dcbf101bd1c794b894297bbe763fdfee3205b03f0d8",
+      "version": "",
+      "installed_at": "2026-11-21T13:00:00Z"
+    },
+    "mocked-skill-00002": {
+      "hash": "sha256:0df9aaa78ebdee9a03f02f340c7e4cb46806bec34dda5bae9a02f43953082100",
+      "version": "1.1.0",
+      "installed_at": "2026-11-21T13:00:00Z"
+    },
+    "mocked-skill-00003": {
+      "hash": "sha256:615cf1c77c292a6dcf8c7f88096f7f67e5653603ada3e744d24c2e9647365ddd",
+      "version": "",
+      "installed_at": "2026-11-21T13:00:00Z"
+    },
+    "mocked-skill-00098": {
+      "hash": "sha256:14a4a9ae31ef1e575767111d5b579f6bc0eca1deabac09c700bf4ccde23865b0",
+      "version": "",
+      "installed_at": "2026-11-21T13:00:00Z"
+    },
+    "mocked-skill-00099": {
+      "hash": "sha256:034e2d3ddbccef998ce02cca3a7d637c4a198d101e470f5cb46549a40ce947ec",
+      "version": "",
+      "installed_at": "2026-11-21T13:00:00Z"
+    }
+  }
+}

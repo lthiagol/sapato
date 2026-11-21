@@ -9,3 +9,7 @@ Spec sections: 5, 6, 7 (`status`).
 
 ## Done when
 - Each status value has a test that builds the scenario in temp dirs. Lock atomic write + no-op-when-unchanged tested. Corrupt lock returns an error naming the file.
+
+## Notes
+- Fixtures `testdata/targets/*` encode every status; build status tests on them (via `testfixtures.CopyTree`).
+- Lock entries for unversioned skills write `"version": ""` (no omitempty), matching the fixtures.

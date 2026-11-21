@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+
+	"sapato/internal/testfixtures"
 )
 
 func writeFiles(t *testing.T, dir string, files map[string]string) {
@@ -185,5 +187,30 @@ func TestHashNotADirectory(t *testing.T) {
 func TestHashMissingDir(t *testing.T) {
 	if _, err := Hash(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Error("Hash(missing) returned nil error")
+	}
+}
+
+// TestHashSkillDBFixtureIgnoresDotPathsAndSymlinks removes the dot paths and
+// the symlink from mocked-skill-00006 and checks the hash does not change.
+func TestHashSkillDBFixtureIgnoresDotPathsAndSymlinks(t *testing.T) {
+	src := filepath.Join(testfixtures.Root(), "skill-db", "skills", "mocked-skill-00006")
+	dir := testfixtures.CopyTree(t, src)
+	want := mustHash(t, src)
+	if got := mustHash(t, dir); got != want {
+		t.Fatalf("copy hash = %s, want %s", got, want)
+	}
+
+	for _, rel := range []string{".DS_Store", ".hidden", "references/.cache", "link.md"} {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if _, err := os.Lstat(p); err != nil {
+			t.Fatalf("fixture lacks %s: %v", rel, err)
+		}
+		if err := os.RemoveAll(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := mustHash(t, dir); got != want {
+		t.Errorf("hash after removing dot paths and symlink = %s, want %s", got, want)
 	}
 }
