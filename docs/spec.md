@@ -118,6 +118,8 @@ For each (skill, agent) pair, over the union of vault skills and target dirs:
 Global flags: `--config`, `--dry-run` (on mutating commands: print plan, change nothing).
 Agent selection: `-a/--agent <id>` repeatable, or `--all` (all enabled agents). Skill args accept globs.
 
+Glob vs literal: a skill named literally that hits a hard refusal (invalid on install, unmanaged on uninstall) fails the whole call. A skill matched only by a glob in that situation is skipped and reported (`skip <skill> in <agent>: <reason>`). Refusals that `--force` can override (modified; unmanaged on install) always fail the call without `--force`, glob or not. Errors read `<skill> in <agent>: <status>`.
+
 | command | behavior |
 |---------|----------|
 | `sapato config` | print resolved config (vault + agents with paths, enabled) |

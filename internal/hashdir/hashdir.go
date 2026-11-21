@@ -1,4 +1,5 @@
-// Package hashdir computes a deterministic content hash of a skill folder.
+// Package hashdir lists the files of a skill folder and computes their
+// deterministic content hash.
 package hashdir
 
 import (
@@ -12,16 +13,17 @@ import (
 	"strings"
 )
 
-type file struct {
-	rel  string
-	exec bool
-	data []byte
+// File is a regular file of a skill folder that counts toward its hash.
+type File struct {
+	Rel  string      // slash-separated path relative to the folder
+	Path string      // path on disk
+	Mode fs.FileMode // permission bits
 }
 
-// Hash returns "sha256:<hex>" over the regular files under dir. Paths with a
+// Files lists the regular files under dir, sorted by Rel. Paths with a
 // component starting with "." and symlinks are skipped.
-func Hash(dir string) (string, error) {
-	var files []file
+func Files(dir string) ([]File, error) {
+	var files []File
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -45,35 +47,43 @@ func Hash(dir string) (string, error) {
 		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
-		files = append(files, file{
-			rel:  filepath.ToSlash(rel),
-			exec: info.Mode().Perm()&0o111 != 0,
-			data: data,
+		files = append(files, File{
+			Rel:  filepath.ToSlash(rel),
+			Path: path,
+			Mode: info.Mode().Perm(),
 		})
 		return nil
 	})
 	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(files, func(a, b File) int { return strings.Compare(a.Rel, b.Rel) })
+	return files, nil
+}
+
+// Hash returns "sha256:<hex>" over the files that Files lists in dir.
+func Hash(dir string) (string, error) {
+	files, err := Files(dir)
+	if err != nil {
 		return "", fmt.Errorf("hash %s: %w", dir, err)
 	}
 
-	slices.SortFunc(files, func(a, b file) int { return strings.Compare(a.rel, b.rel) })
-
 	h := sha256.New()
 	for _, f := range files {
+		data, err := os.ReadFile(f.Path)
+		if err != nil {
+			return "", fmt.Errorf("hash %s: %w", dir, err)
+		}
 		mode := "-"
-		if f.exec {
+		if f.Mode&0o111 != 0 {
 			mode = "x"
 		}
-		fmt.Fprintf(h, "%s\n%s\n%d\n", f.rel, mode, len(f.data))
-		h.Write(f.data)
+		fmt.Fprintf(h, "%s\n%s\n%d\n", f.Rel, mode, len(data))
+		h.Write(data)
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }

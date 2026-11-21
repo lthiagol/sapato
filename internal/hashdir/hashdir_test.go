@@ -3,6 +3,7 @@ package hashdir
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -212,5 +213,52 @@ func TestHashSkillDBFixtureIgnoresDotPathsAndSymlinks(t *testing.T) {
 
 	if got := mustHash(t, dir); got != want {
 		t.Errorf("hash after removing dot paths and symlink = %s, want %s", got, want)
+	}
+}
+
+func TestFilesListsRegularFilesSorted(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"b.txt": "bee", "a/x.md": "ex", ".DS_Store": "junk", ".hidden/n.md": "n", "a/.cache/t.md": "t"})
+	if err := os.Chmod(filepath.Join(dir, "b.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "b.txt"), filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Files(dir)
+	if err != nil {
+		t.Fatalf("Files() error = %v", err)
+	}
+	want := []struct {
+		rel  string
+		mode fs.FileMode
+	}{
+		{"a/x.md", 0o644},
+		{"b.txt", 0o755},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("Files() = %+v, want %d files", got, len(want))
+	}
+	for i, w := range want {
+		if got[i].Rel != w.rel || got[i].Mode != w.mode {
+			t.Errorf("file %d = {%s %v}, want {%s %v}", i, got[i].Rel, got[i].Mode, w.rel, w.mode)
+		}
+		if got[i].Path != filepath.Join(dir, filepath.FromSlash(w.rel)) {
+			t.Errorf("file %d Path = %s", i, got[i].Path)
+		}
+	}
+}
+
+func TestFilesErrors(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Files(file); err == nil {
+		t.Error("Files(file) returned nil error")
+	}
+	if _, err := Files(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Error("Files(missing) returned nil error")
 	}
 }
