@@ -128,7 +128,8 @@ Glob vs literal: a skill named literally that hits a hard refusal (invalid on in
 
 | command | behavior |
 |---------|----------|
-| `sapato config` | print resolved config (vault + agents with paths, enabled) |
+| `sapato config` | print resolved config (vault, theme, icons, agents with paths and enabled) |
+| `sapato config init` | write a commented starter config to the `--config` path (default `~/.config/sapato/config.toml`), creating parent dirs; refuses if the file exists unless `--force`; `--dry-run` prints it instead |
 | `sapato init [path]` | create a vault (`sapato.toml` + `skills/`) at path or configured vault; fail if `sapato.toml` exists |
 | `sapato list` | list vault skills: name, version, hash (short), valid/invalid + reason |
 | `sapato status [skill…] [-a …]` | table of skill × agent status; `--json` |
@@ -170,10 +171,11 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 1. **Header**, centered: the ANSI Shadow `SAPATO` art (exact text in `internal/tui/art.go`, see task 10) in the theme accent, then the tagline `Skills Administration, Packaging & Agent Tool Organization` in subtext. If the terminal is shorter than 30 rows or narrower than the art, use a one-line header: `sapato · <tagline>` (tagline dropped if it doesn't fit).
 2. **Rule** (full width, overlay color).
 3. **Screen body** (below).
-4. **Bottom bar** (full width, 2 rows, Mantle background, no powerline glyphs anywhere):
-   - Row 1: mode badge (` MAIN ` etc.: bold, Base text on the mode color, §9.4), a space, then the counts in subtext (`15 skills · 6 invalid · 4 need attention`).
-   - Row 2 (1-col left pad, like row 1): the context key hints in overlay color, joined with ` · `. The global keys (`esc back` where it applies, `L log`, `? help`, `q quit`) are always shown at the end of the row; if the row is too narrow, the screen-specific hints before them are truncated with `…`.
-   - Row 1 keeps the counts in every mode; FILTER appends ` · / <query>` after them.
+4. **Bottom bar**: a full-width rule (Overlay) and then 2 rows. No background fill (it blends with the screen), no mode badge, no powerline glyphs.
+   - Hint style everywhere: key in Accent (bold), description in Subtext, hints joined with ` · ` in Overlay.
+   - Row 1: the current screen's/mode's **action** hints, horizontally centered; truncated with `…` if too wide. FILTER mode shows `/ <query>` followed by its hints (`enter apply · esc clear`). A confirm shows `y yes · n no`.
+   - Row 2, left (1-col pad): **global** hints: `↑↓ move` (and `pgup/pgdn page` on the skill screen), `esc back` where it applies, `t theme`, `L log`, `? help`, `q quit`.
+   - Row 2, right (1-col pad): the summary `N skills · N invalid · N need attention`; `N skills` in Text, the invalid part in Red and the attention part in Yellow, either dimmed to Overlay when 0. If row 2 can't fit both, the left part is truncated with `…`; the summary is kept.
    - The bar shows no action messages; those are notifications (§9.6).
 
 ### 9.2 Main screen (mode `MAIN`)
@@ -193,7 +195,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
   2. description, wrapped to the pane, max 3 lines (`…` when cut)
   3. `vault  <path>` (or `vault  not in vault` with the value dimmed); labels share one column width; each problem in red if invalid
   4. blank line, then the cursor agent's section: `<agent>  <icon> <status>` + ` · installed <YYYY-MM-DD HH:MM>` (local time) from the lock when managed, then the installed path on the next line (indented)
-  5. blank line, then `FILES (N)` and a tree of the skill's files using the hashing walk (§4: no dot-paths, no symlinks): a root `SKILL.md` first, then directories as `name/` before files, each sorted by name, children indented 2 spaces per level; each file shows the exec glyph (§9.5) if executable and a right-aligned human size (`B`, `KiB`, `MiB`, one decimal above 1 KiB). Files come from the vault copy; if the skill isn't in the vault, from the cursor agent's installed copy, titled `FILES (N, installed in <agent>)`; if neither exists, `no files`.
+  5. blank line, then `FILES (N)` and a tree of the skill's files using the hashing walk (§4: no dot-paths, no symlinks): a root `SKILL.md` first, then directories as `name/` before files, each sorted by name, drawn like `tree(1)`: connectors `├── `, `└── ` and continuation `│   ` / `    ` (ascii icon set: `|-- `, `` `-- ``, `|   `), connectors in Overlay; each file shows the exec glyph (§9.5) if executable and a right-aligned human size (`B`, `KiB`, `MiB`, one decimal above 1 KiB). Files come from the vault copy; if the skill isn't in the vault, from the cursor agent's installed copy, titled `FILES (N, installed in <agent>)`; if neither exists, `no files`.
 - Narrow terminals (< 70 cols): sidebar stacked above details, both full width.
 - All widths via `lipgloss.Width`; long values truncated with `…`; nothing exceeds the terminal.
 - Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all enabled agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
@@ -201,14 +203,15 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 
 ### 9.4 Dialogs and modes
 
-Every dialog (ADOPT, NEW, IMPORT, EXPORT, THEME, HELP, confirm/force confirm) renders as one horizontally centered block, like the grid: block width = widest line, at least 60, at most the terminal width; long values truncated with `…`. Dialogs with an input (NEW, IMPORT, EXPORT) are two thirds of the terminal wide (at least 60, at most the terminal) and the input fills the block.
+**Confirmations are modal**: every y/n confirm (plain, force, remove, discard, install-all) keeps the current screen visible but dimmed (all text re-colored to Overlay, styles stripped), and draws a small rounded-border box centered over it: title in the top border (` Uninstall `, ` Force uninstall `…), the question, the detail lines (path, reason, what is lost), and `y yes · n no` in hint style. Box width = widest line + padding, at least 40, at most terminal − 4. Border Accent for plain confirms, Red for force confirms. Notifications still draw on top.
+
+Every other dialog (ADOPT, NEW, IMPORT, EXPORT, THEME, HELP) renders as one horizontally centered block, like the grid: block width = widest line, at least 60, at most the terminal width; long values truncated with `…`. Dialogs with an input (NEW, IMPORT, EXPORT) are two thirds of the terminal wide (at least 60, at most the terminal) and the input fills the block.
 
 - `ADOPT`: list of every `unmanaged` (skill, agent, path) across enabled agents; `enter` adopts (force confirm on `ErrNeedsForce`), `esc` back.
 - `NEW`: multi-line textarea to paste a complete `SKILL.md`. Live validation line under it (valid, or the first problem). `ctrl+s` saves via `ops.Create`; `esc` cancels (confirm if non-empty).
 - `IMPORT` / `EXPORT`: single-line path input with default; `enter` runs; results in the bar.
 - `THEME`: list of themes; moving the cursor previews live; `enter` keeps it for this session, `esc` restores the previous one. Never writes the config file.
 - `HELP`: keys for the current screen + icon/status legend.
-- Mode badge colors: MAIN=blue/accent, SKILL=green, FILTER=yellow, ADOPT=mauve/purple, NEW=peach/orange, IMPORT/EXPORT=teal/cyan, THEME=pink, HELP=overlay.
 
 ### 9.5 Themes and icons
 
@@ -234,7 +237,7 @@ Row marker: nerd `\uf054`, unicode `▶`, ascii `>`. Mark: nerd `\uf14a`, unicod
 - Every action result, error and info message (install, diff refusal, refresh, theme kept, export written, …) becomes a notification: `kind` (success | error | info), title (short: the op, e.g. `installed`, `error`), message, timestamp.
 - Shown as a stack of rounded-border boxes in the bottom-right corner of the body, directly above the bar, 1-col right margin, drawn over the body. Box width = min(48, terminal width / 2), at least 24; message wrapped inside, max 4 lines (`…` when cut). Top border carries ` <icon> <title> ` (icon = synced icon for success, invalid icon for error, info icon); border + title colored Green / Red / Accent.
 - At most 3 visible; newest at the bottom; older ones drop off the top. Success/info expire after 4s, errors after 10s (driven by `tea.Tick`, testable with an injectable clock).
-- `L` (on every screen, outside text inputs) opens `LOG` mode: a centered dialog (§9.4 rules) listing every notification this session, oldest first, `HH:MM:SS <icon> <title>: <message>`, scrollable, max 200 kept. `esc` closes. LOG badge color = Overlay.
+- `L` (on every screen, outside text inputs) opens `LOG` mode: a centered dialog (§9.4 rules) listing every notification this session, oldest first, `HH:MM:SS <icon> <title>: <message>`, scrollable, max 200 kept. `esc` closes.
 - Notifications never write to disk.
 
 ## 10. Code layout
