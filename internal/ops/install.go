@@ -164,16 +164,19 @@ func placeSkill(src, dest string) error {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("remove old copy: %w", err)
 	}
-	if err := os.Rename(tmp, dest); err != nil {
+	if err := renamePath(tmp, dest); err != nil {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("rename into place: %w", err)
 	}
 	return nil
 }
 
-// placeSkillThen copies src over dest, then runs commit. If either step fails,
-// the copy is removed and the old dest, if there was one, is put back. A failed
-// call therefore leaves the old copy in place.
+// renamePath is os.Rename, held in a variable so tests can fail the final rename.
+var renamePath = os.Rename
+
+// placeSkillThen copies src over dest, then runs commit when commit is not nil.
+// If either step fails, the copy is removed and the old dest, if there was one,
+// is put back. A failed call therefore leaves the old copy in place.
 func placeSkillThen(src, dest string, commit func() error) error {
 	present, err := pathExists(dest)
 	if err != nil {
@@ -198,8 +201,10 @@ func placeSkillThen(src, dest string, commit func() error) error {
 	if err := placeSkill(src, dest); err != nil {
 		return undo(err)
 	}
-	if err := commit(); err != nil {
-		return undo(err)
+	if commit != nil {
+		if err := commit(); err != nil {
+			return undo(err)
+		}
 	}
 	if present {
 		if err := os.RemoveAll(backup); err != nil {

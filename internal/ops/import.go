@@ -64,7 +64,7 @@ func Import(v *vault.Vault, src string, opts ImportOptions) (Action, error) {
 	if opts.DryRun {
 		return action, nil
 	}
-	if err := placeSkill(dir, dest); err != nil {
+	if err := placeSkillThen(dir, dest, nil); err != nil {
 		return Action{}, fmt.Errorf("import %s: %w", src, err)
 	}
 	return action, nil

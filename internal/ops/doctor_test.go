@@ -145,12 +145,19 @@ func TestDoctor(t *testing.T) {
 	}
 }
 
-func TestDoctorOverlapUsesConfiguredPaths(t *testing.T) {
-	t.Run("a shared dir is not an overlap with itself", func(t *testing.T) {
+func TestDoctorOverlapUsesFixedReadDirs(t *testing.T) {
+	t.Run("cursor path that is a symlink to its read dir is not an overlap", func(t *testing.T) {
 		v := syncVault(t, "", []string{"code-review"}, nil)
 		agents := syncAgents(t, true)
-		installFor(t, v, agents[0], "code-review")
-		agents[2].Path = agents[0].Path // cursor reads the same dir as claude
+		claude := agentNamed(t, agents, "claude")
+		cursor := agentNamed(t, agents, "cursor")
+		installFor(t, v, claude, "code-review")
+		if err := os.RemoveAll(cursor.Path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(claude.Path, cursor.Path); err != nil {
+			t.Fatal(err)
+		}
 
 		findings, err := Doctor(v, agents)
 		if err != nil {
@@ -161,13 +168,44 @@ func TestDoctorOverlapUsesConfiguredPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("a configured path is the one that is compared", func(t *testing.T) {
+	t.Run("read dirs that resolve to one dir are reported once", func(t *testing.T) {
 		v := syncVault(t, "", []string{"code-review"}, nil)
 		agents := syncAgents(t, true)
+		claude := agentNamed(t, agents, "claude")
+		agentsDir := agentNamed(t, agents, "agents")
+		opencode := agentNamed(t, agents, "opencode")
+		installFor(t, v, agentsDir, "code-review")
+		writeSkillDir(t, filepath.Join(opencode.Path, "code-review"), "code-review")
+		if err := os.RemoveAll(claude.Path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(agentsDir.Path, claude.Path); err != nil {
+			t.Fatal(err)
+		}
+
+		findings, err := Doctor(v, agents)
+		if err != nil {
+			t.Fatalf("Doctor() error = %v", err)
+		}
+		if got := findingLines(findings); !slices.Equal(got, []string{"warn overlap opencode code-review"}) {
+			t.Errorf("findings = %v, want one overlap", got)
+		}
+	})
+
+	t.Run("overridden claude path still overlaps with the default claude dir", func(t *testing.T) {
+		v := syncVault(t, "", []string{"code-review"}, nil)
+		home := t.TempDir()
 		custom := filepath.Join(t.TempDir(), "custom-claude")
-		agents[0].Path = custom
-		writeSkillDir(t, filepath.Join(custom, "code-review"), "code-review")
-		writeSkillDir(t, filepath.Join(agents[2].Path, "code-review"), "code-review")
+		cfgPath := filepath.Join(home, "config.toml")
+		writeTestFile(t, cfgPath, "[agents.claude]\npath = \""+custom+"\"\n")
+		cfg, err := config.Load(cfgPath, home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		agents := cfg.Agents
+		defaultClaude := filepath.Join(home, ".claude", "skills")
+		writeSkillDir(t, filepath.Join(defaultClaude, "code-review"), "code-review")
+		writeSkillDir(t, filepath.Join(agentNamed(t, agents, "cursor").Path, "code-review"), "code-review")
 
 		findings, err := Doctor(v, agents)
 		if err != nil {
@@ -176,8 +214,8 @@ func TestDoctorOverlapUsesConfiguredPaths(t *testing.T) {
 		if got := findingLines(findings); !slices.Equal(got, []string{"warn overlap cursor code-review"}) {
 			t.Fatalf("findings = %v, want one overlap", got)
 		}
-		if !strings.Contains(findings[0].Message, custom) {
-			t.Errorf("message %q does not name the configured path %s", findings[0].Message, custom)
+		if !strings.Contains(findings[0].Message, defaultClaude) {
+			t.Errorf("message %q does not name the fixed read dir %s", findings[0].Message, defaultClaude)
 		}
 	})
 }

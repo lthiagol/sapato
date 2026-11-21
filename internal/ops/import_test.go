@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,6 +169,24 @@ func TestImport(t *testing.T) {
 				t.Errorf("vault hash = %s, want source hash %s", got.Hash, want)
 			}
 		})
+	}
+}
+
+func TestImportForceFailureKeepsOldCopy(t *testing.T) {
+	v := fixtureVault(t)
+	before := snapshot(t, v.Path)
+	src := filepath.Join(t.TempDir(), "replacement")
+	writeSkillDir(t, src, "mocked-skill-00004")
+
+	renamePath = func(string, string) error { return errors.New("injected rename failure") }
+	t.Cleanup(func() { renamePath = os.Rename })
+
+	_, err := Import(v, src, ImportOptions{Options: Options{Force: true}})
+	if err == nil || !strings.Contains(err.Error(), "injected rename failure") {
+		t.Fatalf("Import() error = %v, want the injected rename failure", err)
+	}
+	if after := snapshot(t, v.Path); !reflect.DeepEqual(after, before) {
+		t.Error("failed forced import changed the vault")
 	}
 }
 

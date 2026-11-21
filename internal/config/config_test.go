@@ -19,12 +19,14 @@ func writeConfig(t *testing.T, path, content string) {
 }
 
 func defaultAgents(home string) []Agent {
+	claudeDir := filepath.Join(home, ".claude", "skills")
+	agentsDir := filepath.Join(home, ".agents", "skills")
 	return []Agent{
-		{ID: "claude", Path: filepath.Join(home, ".claude", "skills"), Enabled: true},
-		{ID: "cursor", Path: filepath.Join(home, ".cursor", "skills"), Enabled: true},
-		{ID: "pi", Path: filepath.Join(home, ".pi", "agent", "skills"), Enabled: true},
-		{ID: "opencode", Path: filepath.Join(home, ".config", "opencode", "skills"), Enabled: true},
-		{ID: "agents", Path: filepath.Join(home, ".agents", "skills"), Enabled: true},
+		{ID: "claude", Path: claudeDir, Enabled: true},
+		{ID: "cursor", Path: filepath.Join(home, ".cursor", "skills"), Enabled: true, ReadDirs: []string{claudeDir}},
+		{ID: "pi", Path: filepath.Join(home, ".pi", "agent", "skills"), Enabled: true, ReadDirs: []string{agentsDir}},
+		{ID: "opencode", Path: filepath.Join(home, ".config", "opencode", "skills"), Enabled: true, ReadDirs: []string{claudeDir, agentsDir}},
+		{ID: "agents", Path: agentsDir, Enabled: true},
 	}
 }
 
@@ -104,6 +106,29 @@ func TestLoad(t *testing.T) {
 				return filepath.Join("~", "custom.toml")
 			},
 			wantVault: func(string) string { return "/v" },
+		},
+		{
+			name:    "read dirs stay on the default when claude path is overridden",
+			content: "[agents.claude]\npath = \"/x/claude\"\n",
+			check: func(t *testing.T, home string, cfg Config) {
+				if got, want := cfg.Agents[1].ReadDirs, []string{filepath.Join(home, ".claude", "skills")}; !reflect.DeepEqual(got, want) {
+					t.Errorf("cursor read dirs = %v, want %v", got, want)
+				}
+			},
+		},
+		{
+			name:    "duplicate path of enabled agents is an error",
+			content: "[agents.cursor]\npath = \"/same\"\n\n[agents.pi]\npath = \"/same/\"\n",
+			wantErr: "cursor and pi both use /same",
+		},
+		{
+			name:    "duplicate path with a tilde form is an error",
+			content: "[agents.agents]\npath = \"~/.claude/skills\"\n",
+			wantErr: "claude and agents both use",
+		},
+		{
+			name:    "duplicate path of a disabled agent is allowed",
+			content: "[agents.cursor]\npath = \"/same\"\n\n[agents.pi]\npath = \"/same\"\nenabled = false\n",
 		},
 		{
 			name:    "unknown agent is an error",

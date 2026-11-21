@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,24 +35,23 @@ func syncVault(t *testing.T, assignments string, valid, invalid []string) *vault
 	return v
 }
 
-// syncAgents makes the five built-in agents in a temp dir. Only claude's
-// enabled flag can be set; the others are enabled.
+// syncAgents loads the five built-in agents with their default paths under a
+// temp home. Only claude's enabled flag can be set; the others are enabled.
 func syncAgents(t *testing.T, claudeEnabled bool) []config.Agent {
 	t.Helper()
-	root := t.TempDir()
-	agents := []config.Agent{
-		{ID: "claude", Path: filepath.Join(root, "claude"), Enabled: claudeEnabled},
-		{ID: "agents", Path: filepath.Join(root, "agents"), Enabled: true},
-		{ID: "cursor", Path: filepath.Join(root, "cursor"), Enabled: true},
-		{ID: "opencode", Path: filepath.Join(root, "opencode"), Enabled: true},
-		{ID: "pi", Path: filepath.Join(root, "pi"), Enabled: true},
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.toml")
+	writeTestFile(t, cfgPath, "[agents.claude]\nenabled = "+strconv.FormatBool(claudeEnabled)+"\n")
+	cfg, err := config.Load(cfgPath, home)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, a := range agents {
+	for _, a := range cfg.Agents {
 		if err := os.MkdirAll(a.Path, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return agents
+	return cfg.Agents
 }
 
 // agentNamed returns the agent with id from agents.

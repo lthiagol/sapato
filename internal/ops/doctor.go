@@ -40,14 +40,6 @@ type Finding struct {
 	Message  string
 }
 
-// readOverlaps lists the agents whose skills dirs each agent also reads (spec §2).
-// Each entry is resolved against the configured paths of the agents it names.
-var readOverlaps = map[string][]string{
-	"cursor":   {"claude"},
-	"opencode": {"claude", "agents"},
-	"pi":       {"agents"},
-}
-
 // Doctor checks the vault and the agents' target dirs and reports what is wrong
 // (spec §7). Invalid vault skills and corrupt locks are errors. Modified,
 // missing and orphaned entries, and skills visible to one agent from two dirs,
@@ -124,20 +116,24 @@ func entryFinding(r Row) (FindingKind, string) {
 }
 
 // overlapFindings reports each skill that an agent can see from two dirs: its
-// own and the dir of an agent it also reads.
+// own and one of the fixed dirs it also reads (spec §2).
 func overlapFindings(agents []config.Agent) ([]Finding, error) {
 	var findings []Finding
 	for _, reader := range agents {
-		for _, id := range readOverlaps[reader.ID] {
-			i := slices.IndexFunc(agents, func(a config.Agent) bool { return a.ID == id })
-			if i < 0 || filepath.Clean(agents[i].Path) == filepath.Clean(reader.Path) {
+		if len(reader.ReadDirs) == 0 {
+			continue
+		}
+		own, err := target.Scan(reader.Path)
+		if err != nil {
+			return nil, err
+		}
+		seen := []string{resolveDir(reader.Path)}
+		for _, dir := range reader.ReadDirs {
+			if slices.Contains(seen, resolveDir(dir)) {
 				continue
 			}
-			own, err := target.Scan(reader.Path)
-			if err != nil {
-				return nil, err
-			}
-			other, err := target.Scan(agents[i].Path)
+			seen = append(seen, resolveDir(dir))
+			other, err := target.Scan(dir)
 			if err != nil {
 				return nil, err
 			}
@@ -151,10 +147,19 @@ func overlapFindings(agents []config.Agent) ([]Finding, error) {
 					Agent:    reader.ID,
 					Skill:    name,
 					Message: fmt.Sprintf("%s is visible to %s from both %s and %s",
-						name, reader.ID, reader.Path, agents[i].Path),
+						name, reader.ID, reader.Path, dir),
 				})
 			}
 		}
 	}
 	return findings, nil
+}
+
+// resolveDir returns dir with symlinks resolved. A dir that does not exist is
+// cleaned instead.
+func resolveDir(dir string) string {
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return resolved
+	}
+	return filepath.Clean(dir)
 }

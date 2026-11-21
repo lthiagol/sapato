@@ -18,6 +18,9 @@ type Agent struct {
 	ID      string
 	Path    string
 	Enabled bool
+	// ReadDirs are the fixed dirs the agent reads besides Path (spec §2), with ~
+	// expanded. They do not depend on the configured Path.
+	ReadDirs []string
 }
 
 // Config is the resolved configuration with ~ expanded.
@@ -41,9 +44,9 @@ const defaultVault = "~/sapato-vault"
 // builtinAgents lists the built-in agents in spec order. Paths use ~.
 var builtinAgents = []Agent{
 	{ID: "claude", Path: "~/.claude/skills", Enabled: true},
-	{ID: "cursor", Path: "~/.cursor/skills", Enabled: true},
-	{ID: "pi", Path: "~/.pi/agent/skills", Enabled: true},
-	{ID: "opencode", Path: "~/.config/opencode/skills", Enabled: true},
+	{ID: "cursor", Path: "~/.cursor/skills", Enabled: true, ReadDirs: []string{"~/.claude/skills"}},
+	{ID: "pi", Path: "~/.pi/agent/skills", Enabled: true, ReadDirs: []string{"~/.agents/skills"}},
+	{ID: "opencode", Path: "~/.config/opencode/skills", Enabled: true, ReadDirs: []string{"~/.claude/skills", "~/.agents/skills"}},
 	{ID: "agents", Path: "~/.agents/skills", Enabled: true},
 }
 
@@ -90,6 +93,7 @@ func Load(path string, home string) (Config, error) {
 			}
 		}
 		a.Path = expandHome(a.Path, home)
+		a.ReadDirs = expandHomeAll(def.ReadDirs, home)
 		cfg.Agents = append(cfg.Agents, a)
 	}
 
@@ -108,6 +112,18 @@ func Load(path string, home string) (Config, error) {
 		return Config{}, fmt.Errorf("config %s: unknown agent %q", path, unknown[0])
 	}
 
+	owner := make(map[string]string, len(cfg.Agents))
+	for _, a := range cfg.Agents {
+		if !a.Enabled {
+			continue
+		}
+		clean := filepath.Clean(a.Path)
+		if other, ok := owner[clean]; ok {
+			return Config{}, fmt.Errorf("config %s: %s and %s both use %s", path, other, a.ID, clean)
+		}
+		owner[clean] = a.ID
+	}
+
 	return cfg, nil
 }
 
@@ -120,4 +136,16 @@ func expandHome(p, home string) string {
 		return filepath.Join(home, rest)
 	}
 	return p
+}
+
+// expandHomeAll applies expandHome to each path. A nil list stays nil.
+func expandHomeAll(paths []string, home string) []string {
+	if paths == nil {
+		return nil
+	}
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = expandHome(p, home)
+	}
+	return out
 }
