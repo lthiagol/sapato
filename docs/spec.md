@@ -170,7 +170,10 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 1. **Header**, centered: the ANSI Shadow `SAPATO` art (exact text in `internal/tui/art.go`, see task 10) in the theme accent, then the tagline `Skills Administration, Packaging & Agent Tool Organization` in subtext. If the terminal is shorter than 30 rows or narrower than the art, use a one-line header: `sapato · <tagline>` (tagline dropped if it doesn't fit).
 2. **Rule** (full width, overlay color).
 3. **Screen body** (below).
-4. **Bottom bar** (full width, 1 row): `[MODE badge] message … right segment`. Mode badge uses the mode color (§9.4). Message = last action result or error (error in red), always followed by a separator before the right segment. Right segment = counts and context key hints, truncated from the left of the hints if narrow. With nerd icons, powerline separators (`\ue0b0`, `\ue0b2`) between segments; otherwise ` │ `.
+4. **Bottom bar** (full width, 2 rows, Mantle background, no powerline glyphs anywhere):
+   - Row 1: mode badge (` MAIN ` etc.: bold, Base text on the mode color, §9.4), a space, then the counts in subtext (`15 skills · 6 invalid · 4 need attention`).
+   - Row 2: the context key hints in overlay color, joined with ` · `, truncated at the end with `…` if narrow.
+   - The bar shows no action messages; those are notifications (§9.6).
 
 ### 9.2 Main screen (mode `MAIN`)
 
@@ -182,9 +185,16 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 
 ### 9.3 Skill screen (mode `SKILL`)
 
-- Info block: name, version (or `-`), short hash, valid/invalid; description (wrapped, max 3 lines); vault path; if invalid, each problem in red.
-- Layout: info block and agent list form one block, horizontally centered like the main grid, separated by a rule the block's width. Block width = widest non-description line (title, fields, problems, vault path, agent rows), at least 60, at most the terminal width; the description wraps to that width (max 3 lines, `…` when cut). Long paths are truncated with `…` so nothing exceeds the terminal width.
-- Agent list: one row per enabled agent: marker, agent id, status icon + status word, installed path (if present). Cursor per agent row. `space` toggles a mark; actions apply to marked rows, or to the cursor row if none marked.
+- Layout: two bordered panes (rounded border, Overlay color; the focused sidebar's border in Accent), filling the body width with a 1-col outer margin. Pane titles sit in the top border (` AGENTS `, ` <skill name> `).
+- **Sidebar (left)**: width = widest agent row + borders, at least 26. One row per enabled agent: mark (§9.5), cursor marker, agent id, status icon + short status word (`not inst.` for not-installed). Cursor per agent row. `space` toggles a mark; actions apply to marked rows, or to the cursor row if none marked.
+- **Details (right)**, takes the remaining width; scrolls with `pgup`/`pgdn` if taller than the body:
+  1. `version <v|->   hash <short>   <valid icon> valid|invalid`
+  2. description, wrapped to the pane, max 3 lines (`…` when cut)
+  3. `vault <path>` (or `not in vault`); each problem in red if invalid
+  4. blank line, then the cursor agent's section: `<agent>  <icon> <status>` + ` · installed <YYYY-MM-DD HH:MM>` from the lock when managed, then the installed path on the next line (indented)
+  5. blank line, then `FILES (N)` and a tree of the skill's files using the hashing walk (§4: no dot-paths, no symlinks): directories as `name/`, children indented 2 spaces per level, sorted; each file shows the exec glyph (§9.5) if executable and a right-aligned human size (`B`, `KiB`, `MiB`, one decimal above 1 KiB). Files come from the vault copy; if the skill isn't in the vault, from the cursor agent's installed copy, titled `FILES (N, installed in <agent>)`; if neither exists, `no files`.
+- Narrow terminals (< 70 cols): sidebar stacked above details, both full width.
+- All widths via `lipgloss.Width`; long values truncated with `…`; nothing exceeds the terminal.
 - Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all enabled agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
 - Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with a bar message.
 
@@ -216,7 +226,15 @@ Icon sets (per status, see §6):
 | unmanaged | `\uf059` | `◆` | `?` |
 | missing | `\uf071` | `!` | `!` |
 
-Row marker: nerd `\uf054`, unicode `▶`, ascii `>`. Mark: nerd `\uf14a`, unicode `■`, ascii `*`.
+Row marker: nerd `\uf054`, unicode `▶`, ascii `>`. Mark: nerd `\uf14a`, unicode `■`, ascii `*`. Executable file: nerd `\uf013`, unicode `⚙`, ascii `x`. Info notification: nerd `\uf05a`, unicode `ℹ`, ascii `i`. Icon sets carry no separators.
+
+### 9.6 Notifications
+
+- Every action result, error and info message (install, diff refusal, refresh, theme kept, export written, …) becomes a notification: `kind` (success | error | info), title (short: the op, e.g. `installed`, `error`), message, timestamp.
+- Shown as a stack of rounded-border boxes in the bottom-right corner of the body, directly above the bar, 1-col right margin, drawn over the body. Box width = min(48, terminal width / 2), at least 24; message wrapped inside, max 4 lines (`…` when cut). Top border carries ` <icon> <title> ` (icon = synced icon for success, invalid icon for error, info icon); border + title colored Green / Red / Accent.
+- At most 3 visible; newest at the bottom; older ones drop off the top. Success/info expire after 4s, errors after 10s (driven by `tea.Tick`, testable with an injectable clock).
+- `L` (on every screen, outside text inputs) opens `LOG` mode: a centered dialog (§9.4 rules) listing every notification this session, oldest first, `HH:MM:SS <icon> <title>: <message>`, scrollable, max 200 kept. `esc` closes. LOG badge color = Overlay.
+- Notifications never write to disk.
 
 ## 10. Code layout
 
