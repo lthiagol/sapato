@@ -6,6 +6,7 @@ Go CLI + Bubble Tea TUI for managing a skill vault. Spec: `docs/spec.md` (source
 
 - Go module `sapato`. Go 1.27. Run before finishing: `gofmt -l .` (must print nothing), `go vet ./...`, `go test ./...`.
 - **Never read or write real agent dirs** (`~/.claude`, `~/.cursor`, `~/.pi`, `~/.config/opencode`, `~/.agents`) or `~/.config/sapato`. Tests use `t.TempDir()` and pass paths explicitly.
+- Shared fixtures: `testdata/skill-db/` (vault) and `testdata/targets/<agent>/` (mock agent dirs), helpers in `internal/testfixtures`. Prefer them in tests; copy with `testfixtures.CopyTree` before mutating. Never edit fixtures without keeping `TestFixturesConsistent` green.
 - Do only what the current task asks. Don't implement future tasks.
 - Packages under `internal/`. Keep `internal/cli` thin; logic lives in `internal/ops` and lower packages.
 - Table-driven tests. Every exported function in `ops`, `vault`, `target`, `hashdir`, `config` has tests.
