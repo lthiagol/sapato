@@ -32,6 +32,10 @@ sapato             # TUI
 ```toml
 vault = "~/sapato-vault"
 
+[ui]
+theme = "catppuccin-mocha"   # catppuccin-{latte,frappe,macchiato,mocha}, dracula, dracula-alucard, nord, nord-light
+icons = "nerd"               # nerd | unicode | ascii (use unicode if glyphs show as boxes)
+
 [agents.cursor]
 path = "~/.cursor/skills"   # override a default path
 enabled = true
@@ -81,6 +85,14 @@ A skill is valid when:
 
 Optional `metadata.version` is shown but never trusted. Versions are tracked by a content hash (dot-files and symlinks excluded). Invalid skills are never installed.
 
+## TUI
+
+Run `sapato` (or `make run` for the mocked data).
+
+- **Main screen:** status grid of every skill. `↑↓`/`jk` move, `enter` open a skill, `/` filter, `r` refresh, `a` adopt an unmanaged skill, `n` new skill (paste a `SKILL.md`, `ctrl+s` saves), `I` import, `t` theme picker (live preview, not saved), `?` help, `q` quit.
+- **Skill screen:** info plus one row per agent. `space` marks agents, then `i` install, `u` uninstall, `U` update, `d` diff, `a` adopt, `A` install everywhere, `x` export, `D` remove from vault, `esc` back.
+- Anything that would overwrite or delete local edits asks a separate, red **force** confirmation.
+
 ## Status
 
 Each install writes `<agent dir>/.sapato-lock.json`. Status compares the vault, the lock and the installed copy:
@@ -108,14 +120,16 @@ Each install writes `<agent dir>/.sapato-lock.json`. Status compares the vault, 
 | `uninstall <skill…> -a id…` | remove managed skills |
 | `update [skill…] [-a id…]` | re-install outdated skills |
 | `diff <skill> -a id` | installed copy vs vault |
-| `import <path\|git-url> [--subdir d] [--name n]` | add a skill to the vault |
+| `import <path\|git-url\|tarball> [--subdir d] [--name n]` | add skills to the vault |
+| `new [file]` | create a skill from a complete `SKILL.md` (file or stdin) |
+| `export <skill…> [-o file]` | write a `.skill.tar.gz` (one or more skills) |
 | `adopt <skill> -a id` | pull an unmanaged agent skill into the vault |
 | `remove <skill>` | delete a skill from the vault |
 | `sync [--prune]` | apply `[assignments]` |
 | `doctor` | invalid skills, broken locks, drift, skills an agent sees twice |
 | `tui` (or no command) | interactive UI (`?` for keys) |
 
-Global flags: `--config`, `--dry-run`. Skill args accept globs.
+Global flags: `--config`, `--dry-run`, `--theme`, `--icons`. Skill args accept globs.
 
 Safety rules:
 - Sapato never deletes or overwrites a folder it didn't install.
