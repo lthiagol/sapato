@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
+	"sapato/internal/config"
+	"sapato/internal/ops"
 	"sapato/internal/vault"
 )
 
@@ -120,4 +124,71 @@ func shortHash(h string) string {
 		hex = hex[:12]
 	}
 	return algo + ":" + hex
+}
+
+func newStatusCmd(opts *globalOpts) *cobra.Command {
+	var agentIDs []string
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "status [skill...]",
+		Short: "Show each skill's status in each agent",
+		Args:  usageArgs(cobra.ArbitraryArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig(opts)
+			if err != nil {
+				return err
+			}
+			agents, err := ops.SelectAgents(cfg.Agents, agentIDs)
+			if err != nil {
+				return usageError{err}
+			}
+			v, err := vault.Open(cfg.Vault)
+			if err != nil {
+				return err
+			}
+			rows, err := ops.Status(v, agents, ops.Filter{Skills: args})
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if asJSON {
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(rows)
+			}
+			return printStatusTable(out, agents, rows)
+		},
+	}
+	cmd.Flags().StringArrayVarP(&agentIDs, "agent", "a", nil, "agent to show, repeatable (default: enabled agents)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print rows as JSON")
+	return cmd
+}
+
+// printStatusTable prints skills as rows and agents as columns. A skill with
+// no row for an agent gets "-".
+func printStatusTable(w io.Writer, agents []config.Agent, rows []ops.Row) error {
+	var skills []string
+	cells := make(map[string]map[string]ops.State)
+	for _, r := range rows {
+		if _, ok := cells[r.Skill]; !ok {
+			cells[r.Skill] = make(map[string]ops.State)
+			skills = append(skills, r.Skill)
+		}
+		cells[r.Skill][r.Agent] = r.Status
+	}
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	header := []string{"SKILL"}
+	for _, a := range agents {
+		header = append(header, strings.ToUpper(a.ID))
+	}
+	fmt.Fprintln(tw, strings.Join(header, "\t"))
+	for _, skill := range skills {
+		line := []string{skill}
+		for _, a := range agents {
+			line = append(line, orDash(string(cells[skill][a.ID])))
+		}
+		fmt.Fprintln(tw, strings.Join(line, "\t"))
+	}
+	return tw.Flush()
 }

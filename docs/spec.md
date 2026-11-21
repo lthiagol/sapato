@@ -102,7 +102,8 @@ For each (skill, agent) pair, over the union of vault skills and target dirs:
 
 | status       | meaning |
 |--------------|---------|
-| `not-installed` | in vault, not in target |
+| `not-installed` | in vault (valid), not in target |
+| `invalid`    | in vault but fails validation, not in target |
 | `synced`     | in lock, target hash == lock hash == vault hash |
 | `outdated`   | in lock, target hash == lock hash, vault hash differs |
 | `modified`   | in lock, target hash != lock hash (local edits in target) |

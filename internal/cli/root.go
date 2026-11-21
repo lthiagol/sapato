@@ -59,7 +59,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 	root.PersistentFlags().StringVar(&opts.configPath, "config", "", "config file (default ~/.config/sapato/config.toml)")
 	root.PersistentFlags().BoolVar(&opts.dryRun, "dry-run", false, "print the plan of mutating commands and change nothing")
-	root.AddCommand(newConfigCmd(&opts), newInitCmd(&opts), newListCmd(&opts))
+	root.AddCommand(newConfigCmd(&opts), newInitCmd(&opts), newListCmd(&opts), newStatusCmd(&opts))
 	return root
 }
 
