@@ -25,22 +25,32 @@ const labelW = 13
 // View draws the frame of the screen: the header, the rule, the body of the
 // screen or overlay, and the bar.
 func (m Model) View() string {
-	var body []string
+	return m.frame(m.body())
+}
+
+// body is the body of the current screen or overlay, before it is fitted to the
+// frame. Each dialog is a centered block.
+func (m Model) body() []string {
 	switch m.mode {
 	case modeConfirm:
-		body = m.confirmBody()
+		return m.dialogBlock(m.confirmBody)
 	case modeDiff:
-		body = m.diffBody()
+		return m.diffBody()
 	case modeHelp:
-		body = m.helpBody()
-	default:
-		if m.screen == screenSkill {
-			body = m.skillBody()
-		} else {
-			body = m.mainBody()
-		}
+		return m.dialogBlock(m.helpBody)
+	case modeAdopt:
+		return m.dialogBlock(m.adoptBody)
+	case modeNew:
+		return m.inputBlock(m.newBody)
+	case modeImport, modeExport:
+		return m.inputBlock(m.pathBody)
+	case modeTheme:
+		return m.dialogBlock(m.themeBody)
 	}
-	return m.frame(body)
+	if m.screen == screenSkill {
+		return m.skillBody()
+	}
+	return m.mainBody()
 }
 
 // frame stacks the header, a rule, the body fitted to the rows between the rule
@@ -115,6 +125,16 @@ func (m Model) modeName() string {
 		return "DIFF"
 	case modeHelp:
 		return "HELP"
+	case modeAdopt:
+		return "ADOPT"
+	case modeNew:
+		return "NEW"
+	case modeImport:
+		return "IMPORT"
+	case modeExport:
+		return "EXPORT"
+	case modeTheme:
+		return "THEME"
 	}
 	if m.screen == screenSkill {
 		return "SKILL"
@@ -231,16 +251,8 @@ func (m Model) skillBody() []string {
 	w := m.layoutWidth()
 	info, blockW := m.skillBlock(w)
 	agents := m.agentLines(w)
-	pad := m.leftPad(blockW)
-	lines := make([]string, 0, len(info)+1+len(agents))
-	for _, l := range info {
-		lines = append(lines, pad+l)
-	}
-	lines = append(lines, pad+m.styles.rule.Render(strings.Repeat(m.icons.Rule, blockW)))
-	for _, l := range agents {
-		lines = append(lines, pad+l)
-	}
-	return lines
+	lines := append(info, m.styles.rule.Render(strings.Repeat(m.icons.Rule, blockW)))
+	return m.centered(append(lines, agents...), blockW)
 }
 
 // skillBlock is the info block of the skill screen and the width it is centered
@@ -387,33 +399,48 @@ func (m Model) agentRow(i int, a config.Agent, idW, statusW, w int) string {
 }
 
 // confirmBody shows a plain confirm with its plan, or a force prompt in warning style.
-func (m Model) confirmBody() []string {
+// A discard of the NEW editor asks for its own plain confirm. Values longer than w
+// are cut with an ellipsis.
+func (m Model) confirmBody(w int) []string {
 	p := m.pending
-	ids := agentIDs(p.act.agents)
-	if p.act.force {
+	if p.act.op == opDiscard {
 		return []string{
-			m.styles.fail.Render(fmt.Sprintf("Force %s %s in %s?", p.act.op, p.act.skill, ids)),
+			m.styles.bold.Render(truncate("Discard the new skill?", w)),
 			"",
-			"  " + p.reason,
-			"",
-			m.styles.fail.Render(effect(p.act)),
+			m.styles.dim.Render(truncate(effect(p.act), w)),
 		}
 	}
-	lines := []string{m.styles.bold.Render(fmt.Sprintf("%s %s in %s?", p.act.op, p.act.skill, ids)), ""}
-	for _, a := range p.plan {
-		lines = append(lines, "  "+describe(a))
+	if p.act.force {
+		return []string{
+			m.styles.fail.Render(truncate("Force "+subject(p.act)+"?", w)),
+			"",
+			"  " + truncate(p.reason, w-2),
+			"",
+			m.styles.fail.Render(truncate(effect(p.act), w)),
+		}
 	}
-	return append(lines, "", m.styles.dim.Render(effect(p.act)))
+	lines := []string{m.styles.bold.Render(truncate(subject(p.act)+"?", w)), ""}
+	for _, a := range p.plan {
+		lines = append(lines, "  "+truncate(describe(a), w-2))
+	}
+	return append(lines, "", m.styles.dim.Render(truncate(effect(p.act), w)))
 }
 
 func (m Model) diffBody() []string {
 	return append([]string{m.styles.bold.Render(m.diffTitle)}, strings.Split(m.diff.View(), "\n")...)
 }
 
-func (m Model) helpBody() []string {
-	lines := []string{m.styles.bold.Render("Help"), "", m.styles.bold.Render("Cells")}
+// helpBody is the keys of the current screen and the icon legend. A description
+// longer than w is cut with an ellipsis.
+func (m Model) helpBody(w int) []string {
+	// helpLine is a line of a label column and a description, cut to w.
+	helpLine := func(prefix, desc string) string {
+		return prefix + truncate(desc, w-lipgloss.Width(prefix))
+	}
+	lines := []string{m.styles.bold.Render(truncate("Help", w)), "", m.styles.bold.Render("Cells")}
 	for _, st := range states {
-		lines = append(lines, fmt.Sprintf("  %s  %s %s", m.styles.glyph[st.state].Render(m.icons.Status[st.state]), pad(string(st.state), 13), st.desc))
+		glyph := m.styles.glyph[st.state].Render(m.icons.Status[st.state])
+		lines = append(lines, helpLine(fmt.Sprintf("  %s  %s ", glyph, pad(string(st.state), 13)), st.desc))
 	}
 	lines = append(lines, "", m.styles.bold.Render("Keys"))
 	keys := m.hints()
@@ -422,10 +449,10 @@ func (m Model) helpBody() []string {
 	}
 	for _, b := range keys {
 		h := b.Help()
-		lines = append(lines, fmt.Sprintf("  %s %s", pad(h.Key, 16), h.Desc))
+		lines = append(lines, helpLine(fmt.Sprintf("  %s ", pad(h.Key, 16)), h.Desc))
 	}
-	lines = append(lines, fmt.Sprintf("  %s %s", pad("ctrl+c", 16), "quit from any view"))
-	lines = append(lines, "", m.styles.dim.Render("esc or ? closes this view"))
+	lines = append(lines, helpLine(fmt.Sprintf("  %s ", pad("ctrl+c", 16)), "quit from any view"))
+	lines = append(lines, "", m.styles.dim.Render(truncate("esc or ? closes this view", w)))
 	return lines
 }
 
@@ -448,6 +475,14 @@ func (m Model) barHints() []key.Binding {
 		return []key.Binding{m.keys.closeView, scrollHint}
 	case modeHelp:
 		return []key.Binding{m.keys.closeView}
+	case modeAdopt:
+		return []key.Binding{moveHint, adoptHint, backHint}
+	case modeNew:
+		return []key.Binding{m.keys.save, cancelHint}
+	case modeImport, modeExport:
+		return []key.Binding{runHint, cancelHint}
+	case modeTheme:
+		return []key.Binding{moveHint, keepHint, restoreHint}
 	}
 	return m.hints()
 }
@@ -477,23 +512,48 @@ func (m Model) bar() string {
 	if counts != "" && hints != "" {
 		sep = " │ "
 	}
+	// The message keeps a third of the bar at most, and the separator before the
+	// right segment is reserved before the segment is cut.
+	joint := ""
+	if msg != "" {
+		joint = m.barJoint()
+	}
 	natural := edge + lipgloss.Width(counts) + lipgloss.Width(sep) + lipgloss.Width(hints)
-	room := min(natural, avail-min(lipgloss.Width(msg), avail/3))
+	room := min(natural, avail-min(lipgloss.Width(msg), avail/3)-lipgloss.Width(joint))
 	hintRoom := room - edge - lipgloss.Width(counts) - lipgloss.Width(sep)
 	if hintRoom < 0 {
 		hints, sep = "", ""
 	} else {
 		hints = tailCut(hints, hintRoom)
 	}
-	right := m.barRight(counts, sep, hints, edge)
-	right = clip(right, avail)
+	right := clip(m.barRight(counts, sep, hints, edge), avail)
+	if right == "" {
+		joint = ""
+	}
 
-	msgShown := clip(msgStyle.Render(msg), avail-lipgloss.Width(right))
-	gap := max(0, avail-lipgloss.Width(right)-lipgloss.Width(msgShown))
+	msgRoom := avail - lipgloss.Width(right) - lipgloss.Width(joint)
+	msgShown := ""
+	switch {
+	case msg == "":
+	case m.mode == modeFilter:
+		msgShown = clip(msgStyle.Render(msg), msgRoom)
+	default:
+		msgShown = msgStyle.Render(truncate(msg, msgRoom))
+	}
+	gap := max(0, msgRoom-lipgloss.Width(msgShown))
 	if m.width == 0 {
 		gap = 1
 	}
-	return clip(badge+lead+msgShown+m.styles.bar.Render(strings.Repeat(" ", gap))+right, m.layoutWidth())
+	return clip(badge+lead+msgShown+m.styles.bar.Render(strings.Repeat(" ", gap))+joint+right, m.layoutWidth())
+}
+
+// barJoint separates the message from the right segment. With powerline the
+// segment starts with its own separator, so only a space goes before it.
+func (m Model) barJoint() string {
+	if m.icons.Powerline {
+		return m.styles.bar.Render(" ")
+	}
+	return m.styles.barDim.Render(" │ ")
 }
 
 // layoutWidth is the width the bar and the screen bodies are laid out in. Before
@@ -628,10 +688,32 @@ func describe(a ops.Action) string {
 	return fmt.Sprintf("%s %s", a.Op, a.Path)
 }
 
+// subject names an action in its confirm prompt.
+func subject(a action) string {
+	switch a.op {
+	case ops.OpRemove:
+		return "remove " + a.skill
+	case ops.OpCreate:
+		return "create " + a.skill
+	case ops.OpImport:
+		return "import " + a.src
+	}
+	return fmt.Sprintf("%s %s in %s", a.op, a.skill, agentIDs(a.agents))
+}
+
 // effect says what a confirmed action does to local state. A force prompt
 // states what is lost.
 func effect(a action) string {
 	switch a.op {
+	case opDiscard:
+		return "The text you wrote is lost."
+	case ops.OpRemove:
+		if a.force {
+			return "Deletes the vault copy; installed copies become orphaned."
+		}
+		return "Deletes the skill from the vault."
+	case ops.OpCreate, ops.OpImport:
+		return "Overwrites the same-named skill in the vault."
 	case ops.OpUninstall:
 		if a.force {
 			return "Local edits are lost with the installed copy and its lock entry."

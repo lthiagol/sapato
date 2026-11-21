@@ -164,7 +164,7 @@ func row(skill, agent string, st ops.State) ops.Row {
 func keyMsg(s string) tea.KeyMsg {
 	special := map[string]tea.KeyType{
 		"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
-		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "ctrl+c": tea.KeyCtrlC,
+		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "ctrl+c": tea.KeyCtrlC, "ctrl+s": tea.KeyCtrlS,
 		"space": tea.KeySpace, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
 	}
 	if t, ok := special[s]; ok {

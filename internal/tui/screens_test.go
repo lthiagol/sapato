@@ -128,30 +128,6 @@ func TestAdoptNeedsAnUnmanagedCopy(t *testing.T) {
 	}
 }
 
-func TestComingSoonKeysSayso(t *testing.T) {
-	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Unmanaged)}}
-	tests := []struct {
-		name string
-		keys []string
-		want string
-	}{
-		{name: "main a", keys: []string{"a"}, want: "adopt: coming soon"},
-		{name: "main n", keys: []string{"n"}, want: "new: coming soon"},
-		{name: "main I", keys: []string{"I"}, want: "import: coming soon"},
-		{name: "main t", keys: []string{"t"}, want: "theme: coming soon"},
-		{name: "skill x", keys: []string{"enter", "x"}, want: "export: coming soon"},
-		{name: "skill D", keys: []string{"enter", "D"}, want: "remove: coming soon"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := press(t, loaded(t, b, []config.Agent{claude}), tt.keys...)
-			if m.result != tt.want || m.resultErr {
-				t.Errorf("result = %q (err %t), want %q", m.result, m.resultErr, tt.want)
-			}
-		})
-	}
-}
-
 func TestDiffAndHelpReturnToTheSkillScreen(t *testing.T) {
 	b := &fakeBackend{
 		rows:    []ops.Row{row("alpha", "claude", ops.Modified)},

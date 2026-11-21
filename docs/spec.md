@@ -170,7 +170,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 1. **Header**, centered: the ANSI Shadow `SAPATO` art (exact text in `internal/tui/art.go`, see task 10) in the theme accent, then the tagline `Skills Administration, Packaging & Agent Tool Organization` in subtext. If the terminal is shorter than 30 rows or narrower than the art, use a one-line header: `sapato · <tagline>` (tagline dropped if it doesn't fit).
 2. **Rule** (full width, overlay color).
 3. **Screen body** (below).
-4. **Bottom bar** (full width, 1 row): `[MODE badge] message … right segment`. Mode badge uses the mode color (§9.4). Message = last action result or error (error in red). Right segment = counts and context key hints, truncated from the left of the hints if narrow. With nerd icons, powerline separators (`\ue0b0`, `\ue0b2`) between segments; otherwise ` │ `.
+4. **Bottom bar** (full width, 1 row): `[MODE badge] message … right segment`. Mode badge uses the mode color (§9.4). Message = last action result or error (error in red), always followed by a separator before the right segment. Right segment = counts and context key hints, truncated from the left of the hints if narrow. With nerd icons, powerline separators (`\ue0b0`, `\ue0b2`) between segments; otherwise ` │ `.
 
 ### 9.2 Main screen (mode `MAIN`)
 
@@ -189,6 +189,8 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 - Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with a bar message.
 
 ### 9.4 Dialogs and modes
+
+Every dialog (ADOPT, NEW, IMPORT, EXPORT, THEME, HELP, confirm/force confirm) renders as one horizontally centered block, like the grid: block width = widest line, at least 60, at most the terminal width; long values truncated with `…`. Dialogs with an input (NEW, IMPORT, EXPORT) are two thirds of the terminal wide (at least 60, at most the terminal) and the input fills the block.
 
 - `ADOPT`: list of every `unmanaged` (skill, agent, path) across enabled agents; `enter` adopts (force confirm on `ErrNeedsForce`), `esc` back.
 - `NEW`: multi-line textarea to paste a complete `SKILL.md`. Live validation line under it (valid, or the first problem). `ctrl+s` saves via `ops.Create`; `esc` cancels (confirm if non-empty).

@@ -34,7 +34,7 @@ func Remove(v *vault.Vault, agents []config.Agent, skill string, opts Options) (
 		}
 	}
 	if len(installed) > 0 && !opts.Force {
-		return Action{}, fmt.Errorf("remove %s: installed in %s (use --force)", skill, strings.Join(installed, ", "))
+		return Action{}, fmt.Errorf("remove %s: %w", skill, forceRefusal("installed in "+strings.Join(installed, ", ")+" (use --force)"))
 	}
 
 	action := Action{Op: OpRemove, Skill: skill, Path: skills[i].Dir}

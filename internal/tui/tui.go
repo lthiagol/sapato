@@ -36,7 +36,7 @@ func Run(cfg config.Config, in io.Reader, out io.Writer) error {
 			agents = append(agents, a)
 		}
 	}
-	m := New(opsBackend{v}, agents, th, set, os.Getenv("NO_COLOR") != "")
+	m := New(opsBackend{v: v, agents: cfg.Agents}, agents, th, set, os.Getenv("NO_COLOR") != "")
 	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)

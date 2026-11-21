@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -63,6 +64,9 @@ func TestRemove(t *testing.T) {
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("Remove() error = %v, want one containing %q", err, tt.wantErr)
+				}
+				if wantForce := strings.Contains(tt.wantErr, "--force"); errors.Is(err, ErrNeedsForce) != wantForce {
+					t.Errorf("errors.Is(err, ErrNeedsForce) = %t, want %t", !wantForce, wantForce)
 				}
 				if after := snapshot(t, v.Path); !reflect.DeepEqual(after, vaultBefore) {
 					t.Error("vault changed on a refused remove")

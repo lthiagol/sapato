@@ -18,6 +18,8 @@ type keyMap struct {
 	export, remove           key.Binding
 	yes, no                  key.Binding
 	closeView                key.Binding
+	// save saves the NEW editor.
+	save key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -54,6 +56,7 @@ func newKeyMap() keyMap {
 		// no has no keys: any key other than y cancels a confirm. It labels the hint.
 		no:        key.NewBinding(key.WithHelp("n", "no")),
 		closeView: key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc", "back")),
+		save:      key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
 	}
 }
 
@@ -68,6 +71,12 @@ var (
 	filterClearHint = key.NewBinding(key.WithHelp("esc", "clear"))
 	// scrollHint is a help-only entry for the pager's scroll keys.
 	scrollHint = key.NewBinding(key.WithHelp("↑↓ pgup/pgdn", "scroll"))
+	// The dialog hints name the keys that the dialogs match with the bindings above.
+	adoptHint   = key.NewBinding(key.WithHelp("enter", "adopt"))
+	runHint     = key.NewBinding(key.WithHelp("enter", "run"))
+	keepHint    = key.NewBinding(key.WithHelp("enter", "keep"))
+	cancelHint  = key.NewBinding(key.WithHelp("esc", "cancel"))
+	restoreHint = key.NewBinding(key.WithHelp("esc", "restore"))
 )
 
 // mainHints lists the main screen bindings in hint order.

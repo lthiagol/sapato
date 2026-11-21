@@ -298,3 +298,49 @@ func hashPrefix(hash string) string {
 	_, hex, _ := strings.Cut(hash, ":")
 	return hex[:8]
 }
+
+func TestExportFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		exists   bool   // the file is there before the export
+		existing string // its content, when it exists
+		skills   []string
+		wantErr  bool
+		wantFile bool // the file is there after the export
+	}{
+		{name: "writes a new file", skills: []string{"mocked-skill-00004"}, wantFile: true},
+		{name: "refuses an existing file and keeps it", exists: true, existing: "keep", skills: []string{"mocked-skill-00004"}, wantErr: true, wantFile: true},
+		{name: "a refused selection leaves no file", skills: []string{"no-such-skill"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := fixtureVault(t)
+			path := filepath.Join(t.TempDir(), "out.skill.tar.gz")
+			if tt.exists {
+				if err := os.WriteFile(path, []byte(tt.existing), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := ExportFile(v, tt.skills, path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ExportFile error = %v, want error %t", err, tt.wantErr)
+			}
+			data, readErr := os.ReadFile(path)
+			if (readErr == nil) != tt.wantFile {
+				t.Fatalf("file exists = %t, want %t", readErr == nil, tt.wantFile)
+			}
+			if tt.exists && string(data) != tt.existing {
+				t.Errorf("existing file changed to %q", data)
+			}
+			if tt.wantFile && !tt.exists {
+				var want bytes.Buffer
+				if _, err := Export(v, tt.skills, &want); err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(data, want.Bytes()) {
+					t.Errorf("file differs from Export of the same skills")
+				}
+			}
+		})
+	}
+}

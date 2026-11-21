@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -40,6 +41,11 @@ const (
 	modeConfirm
 	modeDiff
 	modeHelp
+	modeAdopt
+	modeNew
+	modeImport
+	modeExport
+	modeTheme
 )
 
 const nothingSelected = "nothing selected"
@@ -50,14 +56,19 @@ type cell struct {
 	agent string
 }
 
-// action is one mutation of a skill, as the UI runs it through the Backend. The
-// agents are the targets. force is set only once the user has accepted a force
-// prompt.
+// action is one mutation, as the UI runs it through the Backend. The agents are
+// the targets of a skill action. force is set only once the user has accepted a
+// force prompt. back is the mode a confirm of the action returns to. content,
+// src and path are the inputs of a create, an import and an export.
 type action struct {
-	op     string
-	skill  string
-	agents []config.Agent
-	force  bool
+	op      string
+	skill   string
+	agents  []config.Agent
+	force   bool
+	back    mode
+	content []byte
+	src     string
+	path    string
 }
 
 // pending is an action that waits for y or n. A plain confirm shows plan. A
@@ -97,6 +108,15 @@ type Model struct {
 	diff      viewport.Model
 	diffTitle string
 
+	th        theme.Theme     // the palette the styles paint with
+	themePrev theme.Theme     // the palette in use when THEME opened, restored on esc
+	themeCur  int             // cursor over theme.All while THEME is open
+	themeTop  int             // first theme row shown
+	pick      int             // cursor over the ADOPT rows
+	pickTop   int             // first ADOPT row shown
+	area      textarea.Model  // the NEW editor
+	path      textinput.Model // the IMPORT and EXPORT path
+
 	result    string // last action result or error, shown in the bar
 	resultErr bool
 
@@ -122,6 +142,9 @@ func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColo
 		marks:       map[string]bool{},
 		filter:      filter,
 		diff:        viewport.New(0, 0),
+		th:          th,
+		area:        newEditor(),
+		path:        newPathInput(),
 	}
 }
 
@@ -141,6 +164,7 @@ type planMsg struct {
 
 // appliedMsg carries the result of an applied action.
 type appliedMsg struct {
+	act  action
 	done []ops.Action
 	err  error
 }
@@ -163,8 +187,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.diff.Width = msg.Width
 		m.diff.Height = max(1, m.bodyHeight()-1)
+		m.sizeInputs()
 		m.scroll()
 		m.scrollAgents()
+	case exportNameMsg:
+		return m.onExportName(msg)
 	case loadedMsg:
 		if msg.err != nil {
 			m.setResult(msg.err.Error(), true)
@@ -196,6 +223,14 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.diffKey(msg)
 	case modeHelp:
 		return m.helpKey(msg)
+	case modeAdopt:
+		return m.adoptKey(msg)
+	case modeNew:
+		return m.newKey(msg)
+	case modeImport, modeExport:
+		return m.pathKey(msg)
+	case modeTheme:
+		return m.themeKey(msg)
 	}
 	if m.screen == screenSkill {
 		return m.skillKey(msg)
@@ -238,13 +273,13 @@ func (m Model) mainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.refresh):
 		return m, m.loadCmd()
 	case key.Matches(msg, k.adopt):
-		m.comingSoon("adopt")
+		return m.openAdopt(), nil
 	case key.Matches(msg, k.newSkill):
-		m.comingSoon("new")
+		return m.openNew()
 	case key.Matches(msg, k.importTar):
-		m.comingSoon("import")
+		return m.openImport()
 	case key.Matches(msg, k.theme):
-		m.comingSoon("theme")
+		return m.openTheme(), nil
 	case key.Matches(msg, k.help):
 		m.mode = modeHelp
 	case key.Matches(msg, k.quit):
@@ -291,9 +326,9 @@ func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.diff):
 		return m.openDiff()
 	case key.Matches(msg, k.export):
-		m.comingSoon("export")
+		return m.openExport()
 	case key.Matches(msg, k.remove):
-		m.comingSoon("remove")
+		return m.startRemove()
 	case key.Matches(msg, k.esc):
 		m.screen = screenMain
 		m.marks = map[string]bool{}
@@ -375,10 +410,6 @@ func (m Model) openDiff() (Model, tea.Cmd) {
 	return m, diffCmd(m.backend, m.open, targets[0])
 }
 
-func (m *Model) comingSoon(what string) {
-	m.setResult(what+": coming soon", false)
-}
-
 // onPlan decides what a dry run leads to. A refusal that --force overrides
 // opens the force prompt. An uninstall opens the plain confirm. Anything else
 // applies at once.
@@ -398,7 +429,7 @@ func (m Model) onPlan(msg planMsg) (Model, tea.Cmd) {
 		m.setResult(summarize(msg.plan), false)
 		return m, nil
 	}
-	if msg.act.op == ops.OpUninstall {
+	if msg.act.op == ops.OpUninstall || msg.act.op == ops.OpRemove {
 		m.pending = pending{act: msg.act, plan: msg.plan}
 		m.mode = modeConfirm
 		return m, nil
@@ -422,23 +453,34 @@ func forceReason(plan []ops.Action, err error) (string, bool) {
 }
 
 // confirmKey applies the pending action on y. Any other key cancels it, so a
-// stray key never changes anything.
+// stray key never changes anything. Either way the prompt returns to the mode that
+// asked it.
 func (m Model) confirmKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	act := m.pending.act
 	m.pending = pending{}
-	m.mode = modeNormal
-	if key.Matches(msg, m.keys.yes) {
-		return m, applyCmd(m.backend, act)
+	m.mode = act.back
+	if !key.Matches(msg, m.keys.yes) {
+		m.setResult("cancelled", false)
+		return m, nil
 	}
-	m.setResult("cancelled", false)
-	return m, nil
+	if act.op == opDiscard {
+		m.mode = modeNormal
+		m.setResult("new skill discarded", false)
+		return m, nil
+	}
+	return m, applyCmd(m.backend, act)
 }
 
+// onApplied shows the result of an applied action. A dialog closes once its
+// action is done. The adopt picker stays open, so the copies left can be adopted.
 func (m Model) onApplied(msg appliedMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
 		m.setResult(msg.err.Error(), true)
-	} else {
-		m.setResult(summarize(msg.done), false)
+		return m, m.loadCmd()
+	}
+	m.setResult(summarize(msg.done), false)
+	if msg.act.op != ops.OpAdopt {
+		m.mode = modeNormal
 	}
 	return m, m.loadCmd()
 }
@@ -516,7 +558,7 @@ func planCmd(b Backend, act action) tea.Cmd {
 func applyCmd(b Backend, act action) tea.Cmd {
 	return func() tea.Msg {
 		done, err := perform(b, act, false)
-		return appliedMsg{done: done, err: err}
+		return appliedMsg{act: act, done: done, err: err}
 	}
 }
 
@@ -539,13 +581,29 @@ func perform(b Backend, act action, dryRun bool) ([]ops.Action, error) {
 	case ops.OpUpdate:
 		return b.Update(act.agents, skills, opts)
 	case ops.OpAdopt:
-		a, err := b.Adopt(act.agents[0], act.skill, opts)
+		return one(b.Adopt(act.agents[0], act.skill, opts))
+	case ops.OpRemove:
+		return one(b.Remove(act.skill, opts))
+	case ops.OpCreate:
+		return one(b.Create(act.content, opts))
+	case ops.OpImport:
+		return b.Import(act.src, opts)
+	case opExport:
+		skips, err := b.Export(act.skill, act.path)
 		if err != nil {
 			return nil, err
 		}
-		return []ops.Action{a}, nil
+		return append([]ops.Action{{Op: opExport, Skill: act.skill, Path: act.path}}, skips...), nil
 	}
 	return nil, fmt.Errorf("unknown operation %q", act.op)
+}
+
+// one is the plan of a call that acts on a single skill or folder.
+func one(a ops.Action, err error) ([]ops.Action, error) {
+	if err != nil {
+		return nil, err
+	}
+	return []ops.Action{a}, nil
 }
 
 // hasWork reports whether a plan changes anything, as opposed to only skipping.
@@ -565,11 +623,16 @@ func summarize(acts []ops.Action) string {
 	}
 	parts := make([]string, 0, len(acts))
 	for _, a := range acts {
-		if a.Op == ops.OpSkip {
+		switch {
+		case a.Op == ops.OpSkip:
 			parts = append(parts, fmt.Sprintf("skipped %s in %s: %s", a.Skill, a.Agent, a.Reason))
-			continue
+		case a.Op == opExport:
+			parts = append(parts, "wrote "+a.Path)
+		case a.Agent == "":
+			parts = append(parts, fmt.Sprintf("%s %s", a.Op, a.Skill))
+		default:
+			parts = append(parts, fmt.Sprintf("%s %s in %s", a.Op, a.Skill, a.Agent))
 		}
-		parts = append(parts, fmt.Sprintf("%s %s in %s", a.Op, a.Skill, a.Agent))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -595,6 +658,8 @@ func (m *Model) load(rows []ops.Row, skills []vault.Skill) {
 	}
 	m.names = slices.Sorted(maps.Keys(names))
 	m.rebuild()
+	m.pick = clampIndex(m.pick, len(m.unmanaged()))
+	m.scrollPick()
 	if m.screen == screenSkill && !slices.Contains(m.names, m.open) {
 		m.screen = screenMain
 	}

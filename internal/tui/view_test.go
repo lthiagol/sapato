@@ -518,3 +518,48 @@ func TestNoColorSelectsWithReverseVideo(t *testing.T) {
 		t.Errorf("selected row background = %v, want the Surface role %v", got, th.Surface)
 	}
 }
+
+// TestBarSeparatesTheMessageFromTheRightSegment checks that a long or a short
+// message is followed by a separator before the counts, and that the bar still
+// fits 80 columns. Unicode joins with " │ ", nerd with its powerline separator.
+func TestBarSeparatesTheMessageFromTheRightSegment(t *testing.T) {
+	th, uni := testLook(t)
+	nerd, ok := icons.ByName("nerd")
+	if !ok {
+		t.Fatal("icon set nerd is missing")
+	}
+	long := strings.Repeat("import pasted-in-tui 16 skills ", 3)
+	tests := []struct {
+		name string
+		set  icons.Set
+		msg  string
+		end  string // what the message ends with in the bar
+		join string // the separator before the counts
+	}{
+		{name: "unicode long", set: uni, msg: long, end: "…", join: " │ "},
+		{name: "unicode short", set: uni, msg: "ok", end: "ok", join: " │ "},
+		{name: "nerd long", set: nerd, msg: long, end: "…", join: " " + nerd.SepLeft + " "},
+		{name: "nerd short", set: nerd, msg: "ok", end: "ok", join: " " + nerd.SepLeft + " "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &fakeBackend{rows: []ops.Row{row("code-review", "claude", ops.Synced)}}
+			m := sized(t, loaded(t, b, []config.Agent{claude}), 80, 24)
+			m = New(b, []config.Agent{claude}, th, tt.set, true)
+			m, _ = settle(t, m, m.Init())
+			m = sized(t, m, 80, 24)
+			m.setResult(tt.msg, false)
+			lines := strings.Split(m.View(), "\n")
+			bar := lines[len(lines)-1]
+			if w := lipgloss.Width(bar); w != 80 {
+				t.Errorf("bar is %d columns, want 80: %q", w, bar)
+			}
+			if !strings.Contains(bar, tt.end) {
+				t.Errorf("bar lacks the end of the message %q: %q", tt.end, bar)
+			}
+			if want := tt.join + m.counts(); !strings.Contains(bar, want) {
+				t.Errorf("bar lacks the separator before the counts %q: %q", want, bar)
+			}
+		})
+	}
+}

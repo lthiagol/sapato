@@ -43,6 +43,24 @@ func Export(v *vault.Vault, skills []string, w io.Writer) ([]Action, error) {
 	return skips, nil
 }
 
+// ExportFile writes the export of skills to a new file at name. An existing file is
+// refused, and a partly written file is removed. It returns the skips of Export.
+func ExportFile(v *vault.Vault, skills []string, name string) ([]Action, error) {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("export %s: %w", name, err)
+	}
+	skips, err := Export(v, skills, f)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(name)
+		return nil, err
+	}
+	return skips, nil
+}
+
 // ExportName returns the default file name of an export of skills at now (spec §7):
 // <name>-<version or 8-char hash>.skill.tar.gz for one skill, and
 // skills-<date>.skill.tar.gz for several. It applies the same checks as Export.

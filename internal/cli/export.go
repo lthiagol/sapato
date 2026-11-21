@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -49,16 +48,8 @@ func newExportCmd(opts *globalOpts) *cobra.Command {
 // writeExport writes the export of skills to a new file at name. An existing file
 // is refused, and a partly written file is removed.
 func writeExport(out io.Writer, v *vault.Vault, skills []string, name string) error {
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	skips, err := ops.ExportFile(v, skills, name)
 	if err != nil {
-		return fmt.Errorf("export %s: %w", name, err)
-	}
-	skips, err := ops.Export(v, skills, f)
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		_ = os.Remove(name)
 		return err
 	}
 	for _, s := range skips {
