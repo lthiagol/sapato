@@ -100,3 +100,26 @@ func WriteLock(dir string, l Lock) error {
 	}
 	return nil
 }
+
+// LockExists reports whether dir holds a lock file.
+func LockExists(dir string) (bool, error) {
+	path := filepath.Join(dir, lockName)
+	_, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	default:
+		return false, fmt.Errorf("stat lock %s: %w", path, err)
+	}
+}
+
+// RemoveLock removes the lock file in dir. A missing file is not an error.
+func RemoveLock(dir string) error {
+	path := filepath.Join(dir, lockName)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove lock %s: %w", path, err)
+	}
+	return nil
+}

@@ -206,7 +206,7 @@ func TestAdoptPickerAdoptsAndStaysOpen(t *testing.T) {
 		row("alpha", "claude", ops.Unmanaged), row("beta", "cursor", ops.Unmanaged), row("gamma", "claude", ops.Synced),
 	}}
 	m := press(t, loaded(t, b, dialogAgents), "a")
-	if got := len(m.unmanaged()); got != 2 {
+	if got := len(m.pickCopies()); got != 2 {
 		t.Fatalf("picker lists %d copies, want 2", got)
 	}
 	m = press(t, m, "down", "enter")
@@ -249,6 +249,137 @@ func TestAdoptPickerForceFlow(t *testing.T) {
 	}
 	if !slices.Contains(b.calls, "adopt alpha dry=false force=true") {
 		t.Errorf("calls = %q, want the forced adopt", b.calls)
+	}
+}
+
+// pickNames lists the names of the copies the ADOPT picker shows, comma-separated.
+func pickNames(m Model) string {
+	var names []string
+	for _, c := range m.pickCopies() {
+		names = append(names, c.Skill)
+	}
+	return strings.Join(names, ",")
+}
+
+func TestAdoptPickerFilterSwitches(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{
+		row("alpha", "claude", ops.Unmanaged), row("beta", "cursor", ops.Unmanaged), row("gamma", "claude", ops.Unmanaged),
+	}}
+	tests := []struct {
+		name string
+		keys []string
+		want string
+	}{
+		{name: "all agents grouped in agent order", want: "alpha,gamma,beta"},
+		{name: "tab shows the first agent", keys: []string{"tab"}, want: "alpha,gamma"},
+		{name: "tab twice shows the second", keys: []string{"tab", "tab"}, want: "beta"},
+		{name: "tab past the last agent wraps to all", keys: []string{"tab", "tab", "tab"}, want: "alpha,gamma,beta"},
+		{name: "shift+tab from all shows the last agent", keys: []string{"shift+tab"}, want: "beta"},
+		{name: "right and left switch like tab", keys: []string{"right", "left", "left"}, want: "beta"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(t, loaded(t, b, dialogAgents), "a")
+			m = press(t, m, tt.keys...)
+			if got := pickNames(m); got != tt.want {
+				t.Errorf("picker shows %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAdoptPickerFilterSwitchClearsMarks(t *testing.T) {
+	tests := []struct {
+		name string
+		keys []string // switches from all to the cursor agent, cursor, beta
+	}{
+		{name: "tab", keys: []string{"tab", "tab"}},
+		{name: "shift+tab", keys: []string{"shift+tab"}},
+		{name: "right", keys: []string{"right", "right"}},
+		{name: "left", keys: []string{"left"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Unmanaged), row("beta", "cursor", ops.Unmanaged)}}
+			m := press(t, loaded(t, b, dialogAgents), "a", "space")
+			if len(m.pickMarks) != 1 {
+				t.Fatalf("marked %d copies, want 1", len(m.pickMarks))
+			}
+			m = press(t, m, tt.keys...)
+			if len(m.pickMarks) != 0 {
+				t.Fatalf("after %v: %d marks left, want none", tt.keys, len(m.pickMarks))
+			}
+			m = press(t, m, "enter")
+			want := []string{"adopt beta dry=true force=false", "adopt beta dry=false force=false", "status"}
+			if !slices.Equal(b.calls, want) {
+				t.Errorf("calls = %q, want %q", b.calls, want)
+			}
+		})
+	}
+}
+
+func TestAdoptPickerMarksAndAdoptsAll(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{
+		row("alpha", "claude", ops.Unmanaged), row("beta", "cursor", ops.Unmanaged), row("gamma", "claude", ops.Unmanaged),
+	}}
+	m := press(t, loaded(t, b, dialogAgents), "a", "space", "down", "down", "space")
+	if len(m.pickMarks) != 2 {
+		t.Fatalf("marked %d copies, want 2", len(m.pickMarks))
+	}
+	before := len(m.notes)
+	m = press(t, m, "enter")
+	want := []string{
+		"adopt alpha dry=true force=false", "adopt beta dry=true force=false",
+		"adopt alpha dry=false force=false", "adopt beta dry=false force=false",
+		"status",
+	}
+	if !slices.Equal(b.calls, want) {
+		t.Errorf("calls = %q, want %q", b.calls, want)
+	}
+	if m.mode != modeAdopt || m.lastErr() {
+		t.Errorf("mode %v, result %q (err %t); want the picker open with the result", m.mode, m.lastMsg(), m.lastErr())
+	}
+	if len(m.notes) != before+1 {
+		t.Errorf("notifications went from %d to %d, want one summary", before, len(m.notes))
+	}
+	if note := m.lastNote(); note.title != "adopted 2 skills" || note.message != "adopt alpha in claude; adopt beta in cursor" {
+		t.Errorf("summary = %q %q", note.title, note.message)
+	}
+}
+
+func TestAdoptPickerRefusesTwoMarksOfOneName(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Unmanaged), row("alpha", "cursor", ops.Unmanaged)}}
+	m := press(t, loaded(t, b, dialogAgents), "a", "space", "down", "space")
+	if len(m.pickMarks) != 1 || !m.lastErr() {
+		t.Fatalf("marks = %d, result %q (err %t); want one mark and an error", len(m.pickMarks), m.lastMsg(), m.lastErr())
+	}
+	if want := "alpha is marked in claude already; mark one copy per name"; m.lastMsg() != want {
+		t.Errorf("result = %q, want %q", m.lastMsg(), want)
+	}
+	m = press(t, m, "enter")
+	if want := []string{"adopt alpha dry=true force=false", "adopt alpha dry=false force=false", "status"}; !slices.Equal(b.calls, want) {
+		t.Errorf("calls = %q, want %q", b.calls, want)
+	}
+}
+
+func TestAdoptPickerShowsConflictTag(t *testing.T) {
+	copies := []ops.UnmanagedCopy{
+		{Skill: "alpha", Agent: "claude", Path: "/agents/claude/alpha", Hash: "sha256:1", Conflict: true},
+		{Skill: "alpha", Agent: "cursor", Path: "/agents/cursor/alpha", Hash: "sha256:2", Conflict: true},
+		{Skill: "beta", Agent: "claude", Path: "/agents/claude/beta", Hash: "sha256:3"},
+	}
+	b := &fakeBackend{rows: []ops.Row{
+		row("alpha", "claude", ops.Unmanaged), row("alpha", "cursor", ops.Unmanaged), row("beta", "claude", ops.Unmanaged),
+	}, copies: copies}
+	m := sized(t, press(t, loaded(t, b, dialogAgents), "a"), 100, 30)
+	view := m.View()
+	if n := strings.Count(view, "conflict"); n != 2 {
+		t.Errorf("conflict tags = %d, want one on each alpha row:\n%s", n, view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "beta") && strings.Contains(line, "conflict") {
+			t.Errorf("beta is tagged as a conflict: %q", line)
+		}
 	}
 }
 

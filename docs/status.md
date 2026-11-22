@@ -21,6 +21,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 - **Import sources and `--fix` (task 18):** local folder, `SKILL.md` file, raw `SKILL.md` URL, git, tarball. Discovery with `--subdir`, `--all` and a several-skills error. `--fix` and `--description` repair the vault copy. The ops discovery API is `ops.Discover` (for the TUI, task 19).
 - **IMPORT dialog (task 19):** source input with a `ctrl+o` file picker, a multi-select list for several skills (`ops.ImportOptions.Pick`, all or nothing), a fix-up form for `--fix`, and the force prompt for names already in the vault.
 - **New-skill scaffold and wizard (task 20):** `new --name --description [--compatible a,b] [--edit]` writes the §7.2 template. The TUI NEW wizard takes a name, a description and the agents, then `ctrl+s` scaffolds and offers to open the file in the editor. `tab` switches to the paste mode.
+- **Adopt (task 21):** identical copies in other agents become synced too. `adopt <skill…> -a <id>` takes globs over that agent's unmanaged skills. The ADOPT dialog groups copies by agent, with a filter row, `space` marks, a `conflict` tag and one summary notification.
 
 ## Open nits (optional, from the last review)
 

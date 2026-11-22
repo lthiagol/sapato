@@ -227,3 +227,53 @@ func TestWriteLock(t *testing.T) {
 		}
 	})
 }
+
+func TestLockExists(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string // empty means no lock file
+		want    bool
+	}{
+		{name: "missing file", want: false},
+		{name: "present file", content: `{"version":1,"skills":{}}`, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tt.content != "" {
+				writeLockFile(t, dir, tt.content)
+			}
+			got, err := LockExists(dir)
+			if err != nil {
+				t.Fatalf("LockExists() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("LockExists() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoveLock(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string // empty means no lock file
+	}{
+		{name: "present file is removed", content: `{"version":1,"skills":{}}`},
+		{name: "missing file is not an error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tt.content != "" {
+				writeLockFile(t, dir, tt.content)
+			}
+			if err := RemoveLock(dir); err != nil {
+				t.Fatalf("RemoveLock() error = %v", err)
+			}
+			if got, err := LockExists(dir); err != nil || got {
+				t.Errorf("after RemoveLock: LockExists() = %t, %v; want absent", got, err)
+			}
+		})
+	}
+}

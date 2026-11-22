@@ -121,6 +121,33 @@ func TestAdoptCommand(t *testing.T) {
 	})
 }
 
+func TestAdoptGlobCommand(t *testing.T) {
+	cfgPath, vaultDir, claudeDir := manageSetup(t)
+	two := filepath.Join(claudeDir, "hand-two")
+	if err := os.MkdirAll(two, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(two, "SKILL.md"), []byte("---\nname: hand-two\ndescription: Second.\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, stderr := runCLI("--config", cfgPath, "adopt", "hand-*", "-a", "claude")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr %q", code, stderr)
+	}
+	want := "adopt hand-made-skill in claude: " + filepath.Join(claudeDir, "hand-made-skill") + "\n" +
+		"adopt hand-two in claude: " + two + "\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
+	}
+	if _, err := os.Stat(filepath.Join(vaultDir, "skills", "hand-two", "SKILL.md")); err != nil {
+		t.Errorf("glob skill not in vault: %v", err)
+	}
+	if code, _, stderr := runCLI("--config", cfgPath, "adopt", "mocked-*", "-a", "claude"); code != 1 || !strings.Contains(stderr, "no unmanaged skill in claude matches") {
+		t.Errorf("glob over managed skills: exit = %d, stderr %q", code, stderr)
+	}
+}
+
 func TestRemoveCommand(t *testing.T) {
 	cfgPath, vaultDir, _ := manageSetup(t)
 

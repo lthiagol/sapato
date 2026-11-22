@@ -20,7 +20,8 @@ type Backend interface {
 	Install(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
 	Uninstall(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
 	Update(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
-	Adopt(agent config.Agent, skill string, opts ops.Options) (ops.Action, error)
+	Adopt(from config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
+	Unmanaged(agents []config.Agent) ([]ops.UnmanagedCopy, error)
 	ToggleCompat(skill string, agents, configured []string) ([]string, error)
 	Remove(skill string, opts ops.Options) (ops.Action, error)
 	Create(content []byte, opts ops.Options) (ops.Action, error)
@@ -62,8 +63,15 @@ func (b opsBackend) Update(agents []config.Agent, skills []string, opts ops.Opti
 	return ops.Update(b.v, agents, skills, opts)
 }
 
-func (b opsBackend) Adopt(agent config.Agent, skill string, opts ops.Options) (ops.Action, error) {
-	return ops.Adopt(b.v, agent, skill, opts)
+// Adopt adopts skills from the agent from, and records identical copies in the other
+// configured agents.
+func (b opsBackend) Adopt(from config.Agent, skills []string, opts ops.Options) ([]ops.Action, error) {
+	return ops.Adopt(b.v, b.agents, from, skills, opts)
+}
+
+// Unmanaged lists the unmanaged copies in agents, with their hashes, for ADOPT.
+func (b opsBackend) Unmanaged(agents []config.Agent) ([]ops.UnmanagedCopy, error) {
+	return ops.UnmanagedCopies(b.v, agents)
 }
 
 // ToggleCompat flips the compatibility of skill with each agent, and returns the new

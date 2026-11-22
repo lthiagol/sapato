@@ -390,7 +390,7 @@ func (m Model) barHints() (own, global []key.Binding) {
 	case modeHelp:
 		return nil, []key.Binding{m.keys.closeView, m.keys.log}
 	case modeAdopt:
-		return []key.Binding{adoptHint}, []key.Binding{moveHint, backHint, m.keys.log}
+		return []key.Binding{adoptHint, m.keys.mark, agentHint}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeNew:
 		if m.newPaste {
 			return []key.Binding{m.keys.save, wizardHint}, []key.Binding{cancelHint}
@@ -551,8 +551,21 @@ func subject(a action) string {
 		return "create vault " + a.path
 	case opEdit:
 		return "open " + a.path
+	case ops.OpAdopt:
+		return "adopt " + adoptList(a.adopts)
 	}
 	return fmt.Sprintf("%s %s in %s", a.op, a.skill, agentIDs(a.agents))
+}
+
+// adoptList names the copies of an adopt as "skill in agent", comma-separated.
+func adoptList(groups []adoptGroup) string {
+	var parts []string
+	for _, g := range groups {
+		for _, s := range g.skills {
+			parts = append(parts, s+" in "+g.from.ID)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // effect says what a confirmed action does to local state. A force prompt
@@ -584,7 +597,10 @@ func effect(a action) string {
 	case ops.OpInstall:
 		return "Overwrites the existing folder, including anything in it."
 	case ops.OpAdopt:
-		return fmt.Sprintf("Replaces the vault copy of %s with this folder.", a.skill)
+		if names := adoptNames(a); len(names) == 1 {
+			return fmt.Sprintf("Replaces the vault copy of %s with this folder.", names[0])
+		}
+		return "Replaces the vault copies of the marked skills with their folders."
 	case opEdit:
 		return "The skill is already saved. The editor keeps the terminal until it exits."
 	}

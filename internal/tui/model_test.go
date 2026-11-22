@@ -52,6 +52,9 @@ type fakeBackend struct {
 	// Discover fails with.
 	discovered  map[string][]ops.Candidate
 	discoverErr error
+	// copies is what Unmanaged returns. Unset, every unmanaged row is a copy with no
+	// hash and no conflict.
+	copies []ops.UnmanagedCopy
 }
 
 func (f *fakeBackend) Status(_ []config.Agent) ([]ops.Row, error) {
@@ -160,16 +163,41 @@ func (f *fakeBackend) Update(agents []config.Agent, skills []string, opts ops.Op
 	return f.run(ops.OpUpdate, agents, skills, opts)
 }
 
-func (f *fakeBackend) Adopt(agent config.Agent, skill string, opts ops.Options) (ops.Action, error) {
-	f.calls = append(f.calls, fmt.Sprintf("adopt %s dry=%t force=%t", skill, opts.DryRun, opts.Force))
-	f.lastAgents = []string{agent.ID}
+// Adopt answers an adopt of skills from one agent. A skill already in the vault is
+// refused without force, as in ops.
+func (f *fakeBackend) Adopt(from config.Agent, skills []string, opts ops.Options) ([]ops.Action, error) {
+	f.calls = append(f.calls, fmt.Sprintf("adopt %s dry=%t force=%t", strings.Join(skills, ","), opts.DryRun, opts.Force))
+	f.lastAgents = []string{from.ID}
 	if err := f.opErr[ops.OpAdopt]; err != nil {
-		return ops.Action{}, err
+		return nil, err
 	}
-	if f.inVault[skill] && !opts.Force {
-		return ops.Action{}, refusal(fmt.Sprintf("adopt %s in %s: already in the vault (use --force)", skill, agent.ID), "already in the vault")
+	var acts []ops.Action
+	for _, skill := range skills {
+		if f.inVault[skill] && !opts.Force {
+			return nil, refusal(fmt.Sprintf("adopt: refusing to adopt %s in %s: already in the vault (use --force)", skill, from.ID), "already in the vault")
+		}
+		acts = append(acts, ops.Action{Op: ops.OpAdopt, Skill: skill, Agent: from.ID, Path: filepath.Join(from.Path, skill)})
 	}
-	return ops.Action{Op: ops.OpAdopt, Skill: skill, Agent: agent.ID, Path: filepath.Join(agent.Path, skill)}, nil
+	return acts, nil
+}
+
+// Unmanaged lists the copies the fake sets, or else its unmanaged rows.
+func (f *fakeBackend) Unmanaged(agents []config.Agent) ([]ops.UnmanagedCopy, error) {
+	if f.copies != nil {
+		return f.copies, nil
+	}
+	var out []ops.UnmanagedCopy
+	for _, r := range f.rows {
+		if r.Status != ops.Unmanaged {
+			continue
+		}
+		for _, a := range agents {
+			if a.ID == r.Agent {
+				out = append(out, ops.UnmanagedCopy{Skill: r.Skill, Agent: r.Agent, Path: filepath.Join(a.Path, r.Skill)})
+			}
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeBackend) ToggleCompat(skill string, agents, _ []string) ([]string, error) {

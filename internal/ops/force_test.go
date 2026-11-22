@@ -63,16 +63,16 @@ func TestRefusalsNeedForce(t *testing.T) {
 				writeSkillDir(t, filepath.Join(agent.Path, "mocked-skill-00004"), "mocked-skill-00004")
 			},
 			run: func(v *vault.Vault, agent config.Agent) error {
-				_, err := Adopt(v, agent, "mocked-skill-00004", Options{})
+				_, err := Adopt(v, []config.Agent{agent}, agent, []string{"mocked-skill-00004"}, Options{})
 				return err
 			},
-			wantErr:   "adopt mocked-skill-00004 in claude: already in the vault (use --force)",
+			wantErr:   "adopt: refusing to adopt mocked-skill-00004 in claude: already in the vault (use --force)",
 			wantForce: true,
 		},
 		{
 			name: "adopt of a folder that is not unmanaged is not overridable",
 			run: func(v *vault.Vault, agent config.Agent) error {
-				_, err := Adopt(v, agent, "mocked-skill-00001", Options{Force: true})
+				_, err := Adopt(v, []config.Agent{agent}, agent, []string{"mocked-skill-00001"}, Options{Force: true})
 				return err
 			},
 			wantErr:   "adopt mocked-skill-00001 in claude: synced, want unmanaged",
@@ -151,7 +151,7 @@ func TestForceRefusalReasons(t *testing.T) {
 			name: "adopt of a name already in the vault",
 			run: func(t *testing.T, v *vault.Vault, agent config.Agent) error {
 				writeSkillDir(t, filepath.Join(agent.Path, "mocked-skill-00004"), "mocked-skill-00004")
-				_, err := Adopt(v, agent, "mocked-skill-00004", Options{})
+				_, err := Adopt(v, []config.Agent{agent}, agent, []string{"mocked-skill-00004"}, Options{})
 				return err
 			},
 			want: []string{"already in the vault"},

@@ -29,6 +29,8 @@ type keyMap struct {
 	// The NEW keys: tab switches between the wizard and the paste mode. The wizard
 	// moves between its fields with the arrows alone, since its inputs take j and k.
 	tab, fieldUp, fieldDown key.Binding
+	// The ADOPT keys: agentNext and agentPrev switch the agent the picker shows.
+	agentNext, agentPrev key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -78,6 +80,9 @@ func newKeyMap() keyMap {
 		tab:       key.NewBinding(key.WithKeys("tab")),
 		fieldUp:   key.NewBinding(key.WithKeys("up")),
 		fieldDown: key.NewBinding(key.WithKeys("down")),
+
+		agentNext: key.NewBinding(key.WithKeys("tab", "right")),
+		agentPrev: key.NewBinding(key.WithKeys("shift+tab", "left")),
 	}
 }
 
@@ -94,6 +99,7 @@ var (
 	scrollHint = key.NewBinding(key.WithHelp("↑↓ pgup/pgdn", "scroll"))
 	// The dialog hints name the keys that the dialogs match with the bindings above.
 	adoptHint   = key.NewBinding(key.WithHelp("enter", "adopt"))
+	agentHint   = key.NewBinding(key.WithHelp("tab/←→", "agent"))
 	runHint     = key.NewBinding(key.WithHelp("enter", "run"))
 	keepHint    = key.NewBinding(key.WithHelp("enter", "keep"))
 	cancelHint  = key.NewBinding(key.WithHelp("esc", "cancel"))

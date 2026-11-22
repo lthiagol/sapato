@@ -71,7 +71,8 @@ type cell struct {
 // refusal (A). back is the mode a confirm of the action returns to. content, src and
 // path are the inputs of a create, an import and an export. desc and compat are the
 // inputs of a scaffold, compat nil for every agent. importOpts are the choices of an
-// import; the dry run and force flags are set when it runs.
+// import; the dry run and force flags are set when it runs. adopts are the skills of
+// an adopt, one group per agent.
 type action struct {
 	op               string
 	skill            string
@@ -85,6 +86,13 @@ type action struct {
 	desc             string
 	compat           []string
 	importOpts       ops.ImportOptions
+	adopts           []adoptGroup
+}
+
+// adoptGroup is the skills an adopt takes from one agent.
+type adoptGroup struct {
+	from   config.Agent
+	skills []string
 }
 
 // pending is an action that waits for y or n. A plain confirm shows plan. A
@@ -128,22 +136,25 @@ type Model struct {
 	diff      viewport.Model
 	diffTitle string
 
-	th        theme.Theme                 // the palette the styles paint with
-	themePrev theme.Theme                 // the palette in use when THEME opened, restored on esc
-	themeCur  int                         // cursor over theme.All while THEME is open
-	themeTop  int                         // first theme row shown
-	pick      int                         // cursor over the ADOPT rows
-	pickTop   int                         // first ADOPT row shown
-	area      textarea.Model              // the paste mode of NEW
-	newPaste  bool                        // NEW shows the paste mode instead of the wizard
-	wiz       newWizard                   // the NEW wizard
-	editArgv  func(path string) []string  // the editor command line that opens a file (spec §7)
-	editRun   func(argv []string) tea.Cmd // runs an editor command line; tests replace it
-	path      textinput.Model             // the IMPORT and EXPORT path
-	home      string                      // the folder the IMPORT file picker opens in when the source names none
-	multi     candList                    // the IMPORT list of several skills
-	fixup     fixForm                     // the IMPORT fix-up form
-	browse    browser                     // the IMPORT file picker
+	th         theme.Theme                 // the palette the styles paint with
+	themePrev  theme.Theme                 // the palette in use when THEME opened, restored on esc
+	themeCur   int                         // cursor over theme.All while THEME is open
+	themeTop   int                         // first theme row shown
+	copies     []ops.UnmanagedCopy         // the unmanaged copies of the last load, for ADOPT
+	pick       int                         // cursor over the copies ADOPT shows
+	pickTop    int                         // first ADOPT line shown
+	pickFilter int                         // the agent ADOPT shows: 0 for all, else the nth agent plus one
+	pickMarks  map[cell]bool               // the copies marked in ADOPT
+	area       textarea.Model              // the paste mode of NEW
+	newPaste   bool                        // NEW shows the paste mode instead of the wizard
+	wiz        newWizard                   // the NEW wizard
+	editArgv   func(path string) []string  // the editor command line that opens a file (spec §7)
+	editRun    func(argv []string) tea.Cmd // runs an editor command line; tests replace it
+	path       textinput.Model             // the IMPORT and EXPORT path
+	home       string                      // the folder the IMPORT file picker opens in when the source names none
+	multi      candList                    // the IMPORT list of several skills
+	fixup      fixForm                     // the IMPORT fix-up form
+	browse     browser                     // the IMPORT file picker
 
 	notes   []notification // every notification of the session, oldest first, at most maxNotes
 	pushed  int            // notifications pushed so far, LOG drops the oldest past maxNotes
@@ -176,6 +187,7 @@ func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColo
 		incompat:    map[cell]bool{},
 		vaultSkills: map[string]vault.Skill{},
 		marks:       map[string]bool{},
+		pickMarks:   map[cell]bool{},
 		filter:      filter,
 		diff:        viewport.New(0, 0),
 		th:          th,
@@ -194,6 +206,7 @@ func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColo
 type loadedMsg struct {
 	rows    []ops.Row
 	skills  []vault.Skill
+	copies  []ops.UnmanagedCopy
 	refresh bool // the load was asked for by r, so it notifies what it loaded
 	err     error
 }
@@ -280,7 +293,7 @@ func (m Model) handle(msg tea.Msg) (Model, tea.Cmd) {
 			m.notify(noteError, "error", msg.err.Error())
 			return m, nil
 		}
-		m.load(msg.rows, msg.skills)
+		m.load(msg.rows, msg.skills, msg.copies)
 		if msg.refresh {
 			m.notify(noteInfo, "refreshed", fmt.Sprintf("%d skills", len(m.names)))
 		}
@@ -596,7 +609,8 @@ func (m Model) onCompat(msg compatMsg) (Model, tea.Cmd) {
 func (m Model) adopt() (Model, tea.Cmd) {
 	for _, a := range m.targets() {
 		if m.cells[cell{m.open, a.ID}] == ops.Unmanaged {
-			return m, planCmd(m.backend, action{op: ops.OpAdopt, skill: m.open, agents: []config.Agent{a}})
+			act := action{op: ops.OpAdopt, adopts: []adoptGroup{{from: a, skills: []string{m.open}}}}
+			return m, planCmd(m.backend, act)
 		}
 	}
 	m.notify(noteError, "error", "adopt needs an unmanaged copy")
@@ -698,7 +712,11 @@ func (m Model) onApplied(msg appliedMsg) (Model, tea.Cmd) {
 		m.notify(noteError, "error", msg.err.Error())
 		return m, m.loadCmd(false)
 	}
-	m.notify(noteSuccess, doneTitle(msg.act.op), summarize(msg.done))
+	title := doneTitle(msg.act.op)
+	if n := adoptCount(msg.act); msg.act.op == ops.OpAdopt && n > 1 {
+		title = fmt.Sprintf("adopted %d skills", n)
+	}
+	m.notify(noteSuccess, title, summarize(msg.done))
 	switch {
 	case msg.act.op == opScaffold && len(msg.done) > 0:
 		m.pending = pending{act: action{op: opEdit, path: filepath.Join(msg.done[0].Path, "SKILL.md"), back: modeNormal}}
@@ -767,7 +785,11 @@ func (m Model) loadCmd(refresh bool) tea.Cmd {
 			return loadedMsg{err: err, refresh: refresh}
 		}
 		skills, err := b.Skills()
-		return loadedMsg{rows: rows, skills: skills, refresh: refresh, err: err}
+		if err != nil {
+			return loadedMsg{err: err, refresh: refresh}
+		}
+		copies, err := b.Unmanaged(agents)
+		return loadedMsg{rows: rows, skills: skills, copies: copies, refresh: refresh, err: err}
 	}
 }
 
@@ -814,7 +836,15 @@ func perform(b Backend, act action, dryRun bool) ([]ops.Action, error) {
 	case ops.OpUpdate:
 		return b.Update(act.agents, skills, opts)
 	case ops.OpAdopt:
-		return one(b.Adopt(act.agents[0], act.skill, opts))
+		var out []ops.Action
+		for _, g := range act.adopts {
+			acts, err := b.Adopt(g.from, g.skills, opts)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, acts...)
+		}
+		return out, nil
 	case ops.OpRemove:
 		return one(b.Remove(act.skill, opts))
 	case ops.OpCreate:
@@ -874,10 +904,10 @@ func summarize(acts []ops.Action) string {
 	return strings.Join(parts, "; ")
 }
 
-// load replaces the statuses and vault skills after a load. The grid cursor
-// stays on its skill when that skill is still listed. The skill screen goes back
-// to the grid when its skill is gone.
-func (m *Model) load(rows []ops.Row, skills []vault.Skill) {
+// load replaces the statuses, vault skills and unmanaged copies after a load. The grid
+// cursor stays on its skill when that skill is still listed. The skill screen goes back
+// to the grid when its skill is gone. A picker mark of a copy that is gone is dropped.
+func (m *Model) load(rows []ops.Row, skills []vault.Skill, copies []ops.UnmanagedCopy) {
 	m.cells = make(map[cell]ops.State, len(rows))
 	m.incompat = make(map[cell]bool)
 	names := make(map[string]bool)
@@ -894,7 +924,14 @@ func (m *Model) load(rows []ops.Row, skills []vault.Skill) {
 	}
 	m.names = slices.Sorted(maps.Keys(names))
 	m.rebuild()
-	m.pick = clampIndex(m.pick, len(m.unmanaged()))
+	m.copies = copies
+	for id := range m.pickMarks {
+		if !slices.ContainsFunc(copies, func(c ops.UnmanagedCopy) bool { return c.Skill == id.skill && c.Agent == id.agent }) {
+			delete(m.pickMarks, id)
+		}
+	}
+	m.pickFilter = min(m.pickFilter, len(m.agents))
+	m.pick = clampIndex(m.pick, len(m.pickCopies()))
 	m.scrollPick()
 	if m.screen == screenSkill && !slices.Contains(m.names, m.open) {
 		m.screen = screenMain

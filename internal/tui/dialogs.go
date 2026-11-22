@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"path/filepath"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -39,13 +39,6 @@ type exportNameMsg struct {
 	err  error
 }
 
-// unmanagedRow is one unmanaged copy that the ADOPT picker lists.
-type unmanagedRow struct {
-	skill string
-	agent config.Agent
-	path  string
-}
-
 // newEditor returns the NEW editor: no prompt, no line numbers, no length limit,
 // and a static cursor, so the model needs no blink commands.
 func newEditor() textarea.Model {
@@ -75,43 +68,164 @@ func (m *Model) sizeInputs() {
 	}
 }
 
-// openAdopt opens the ADOPT picker with its cursor on the first copy.
+// openAdopt opens the ADOPT picker on every agent, with its cursor on the first copy
+// and nothing marked.
 func (m Model) openAdopt() Model {
 	m.mode = modeAdopt
-	m.pick, m.pickTop = 0, 0
+	m.pick, m.pickTop, m.pickFilter = 0, 0, 0
+	m.pickMarks = map[cell]bool{}
 	return m
 }
 
-// unmanaged lists the unmanaged copies in the configured agents, by skill name and
-// then agent order. It lists every name, whatever the grid filter is.
-func (m Model) unmanaged() []unmanagedRow {
-	var rows []unmanagedRow
-	for _, name := range m.names {
-		for _, a := range m.agents {
-			if m.cells[cell{name, a.ID}] == ops.Unmanaged {
-				rows = append(rows, unmanagedRow{skill: name, agent: a, path: filepath.Join(a.Path, name)})
+// pickCopies lists the copies the picker shows, in display order: grouped by agent in
+// agent order, and limited to the agent the filter names.
+func (m Model) pickCopies() []ops.UnmanagedCopy {
+	var out []ops.UnmanagedCopy
+	for i, a := range m.agents {
+		if m.pickFilter != 0 && m.pickFilter != i+1 {
+			continue
+		}
+		for _, c := range m.copies {
+			if c.Agent == a.ID {
+				out = append(out, c)
 			}
 		}
 	}
-	return rows
+	return out
 }
 
-// adoptKey moves the picker cursor, adopts the copy under it on enter, and closes
-// the picker on esc. The picker stays open after an adopt, so the copies left can
-// be adopted too.
+// pickLine is a line of the picker: the heading of an agent, or the copy at index copy
+// of pickCopies. A heading has copy -1.
+type pickLine struct {
+	agent string
+	copy  int
+}
+
+// pickLines lays the copies out under a heading per agent, in display order.
+func pickLines(copies []ops.UnmanagedCopy) []pickLine {
+	var lines []pickLine
+	for i, c := range copies {
+		if i == 0 || copies[i-1].Agent != c.Agent {
+			lines = append(lines, pickLine{agent: c.Agent, copy: -1})
+		}
+		lines = append(lines, pickLine{copy: i})
+	}
+	return lines
+}
+
+// pickedCopies are the copies enter adopts: the marked ones, in the order of the
+// loaded copies, or the cursor's copy when none is marked.
+func (m Model) pickedCopies() []ops.UnmanagedCopy {
+	copies := m.pickCopies()
+	if len(m.pickMarks) == 0 {
+		if len(copies) == 0 {
+			return nil
+		}
+		return []ops.UnmanagedCopy{copies[clampIndex(m.pick, len(copies))]}
+	}
+	var out []ops.UnmanagedCopy
+	for _, c := range m.copies {
+		if m.pickMarks[cell{c.Skill, c.Agent}] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// adoptGroups groups the copies by agent, in agent order, into the adopts of an action.
+func adoptGroups(agents []config.Agent, copies []ops.UnmanagedCopy) []adoptGroup {
+	var groups []adoptGroup
+	for _, a := range agents {
+		var skills []string
+		for _, c := range copies {
+			if c.Agent == a.ID {
+				skills = append(skills, c.Skill)
+			}
+		}
+		if len(skills) > 0 {
+			groups = append(groups, adoptGroup{from: a, skills: skills})
+		}
+	}
+	return groups
+}
+
+// adoptNames are the distinct skill names of an adopt, in the order of its groups.
+func adoptNames(act action) []string {
+	var names []string
+	for _, g := range act.adopts {
+		for _, s := range g.skills {
+			if !slices.Contains(names, s) {
+				names = append(names, s)
+			}
+		}
+	}
+	return names
+}
+
+// adoptCount is how many skills an adopt takes.
+func adoptCount(act action) int {
+	return len(adoptNames(act))
+}
+
+// adoptPicked plans the adoption of the picked copies. The plan applies at once,
+// unless ops refuses for want of --force.
+func (m Model) adoptPicked() (Model, tea.Cmd) {
+	picked := m.pickedCopies()
+	if len(picked) == 0 {
+		return m, nil
+	}
+	act := action{op: ops.OpAdopt, back: modeAdopt, adopts: adoptGroups(m.agents, picked)}
+	return m, planCmd(m.backend, act)
+}
+
+// togglePick marks or unmarks copy c. Only one copy of a name can be marked, since an
+// adopt takes one folder per name, so a copy whose name another marked copy has is
+// refused with an error.
+func (m Model) togglePick(c ops.UnmanagedCopy) Model {
+	id := cell{c.Skill, c.Agent}
+	if m.pickMarks[id] {
+		delete(m.pickMarks, id)
+		return m
+	}
+	for other := range m.pickMarks {
+		if other.skill == c.Skill {
+			m.notify(noteError, "error", fmt.Sprintf("%s is marked in %s already; mark one copy per name", c.Skill, other.agent))
+			return m
+		}
+	}
+	m.pickMarks[id] = true
+	return m
+}
+
+// setPickFilter shows the agents of filter f, with the cursor on the first copy and
+// nothing marked, so no mark is left on a copy the picker no longer shows.
+func (m *Model) setPickFilter(f int) {
+	m.pickFilter, m.pick, m.pickTop = f, 0, 0
+	m.pickMarks = map[cell]bool{}
+}
+
+// adoptKey moves the picker cursor, switches the agent filter with tab, shift+tab or
+// the arrows, marks the copy under the cursor with space, and adopts on enter. esc
+// closes the picker. The picker stays open after an adopt, so the copies left can be
+// adopted too.
 func (m Model) adoptKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	rows := m.unmanaged()
+	copies := m.pickCopies()
+	filters := len(m.agents) + 1
 	switch {
 	case key.Matches(msg, m.keys.up):
-		m.pick = clampIndex(m.pick-1, len(rows))
+		m.pick = clampIndex(m.pick-1, len(copies))
 	case key.Matches(msg, m.keys.down):
-		m.pick = clampIndex(m.pick+1, len(rows))
-	case key.Matches(msg, m.keys.enter):
-		if len(rows) == 0 {
-			return m, nil
+		m.pick = clampIndex(m.pick+1, len(copies))
+	case key.Matches(msg, m.keys.agentNext):
+		m.setPickFilter((m.pickFilter + 1) % filters)
+	case key.Matches(msg, m.keys.agentPrev):
+		m.setPickFilter((m.pickFilter + filters - 1) % filters)
+	case key.Matches(msg, m.keys.mark):
+		if len(copies) > 0 {
+			m = m.togglePick(copies[clampIndex(m.pick, len(copies))])
 		}
-		r := rows[clampIndex(m.pick, len(rows))]
-		return m, planCmd(m.backend, action{op: ops.OpAdopt, skill: r.skill, agents: []config.Agent{r.agent}, back: modeAdopt})
+	case key.Matches(msg, m.keys.enter):
+		return m.adoptPicked()
 	case key.Matches(msg, m.keys.esc):
 		m.mode = modeNormal
 	}
@@ -119,18 +233,25 @@ func (m Model) adoptKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// pickRows is how many picker rows fit under the title and its gap. Before the
-// first size message it is every row.
+// pickRows is how many picker lines fit under the title, the filter row and their
+// gaps. Before the first size message it is every line.
 func (m Model) pickRows() int {
 	if m.height == 0 {
-		return max(1, len(m.unmanaged()))
+		return max(1, len(pickLines(m.pickCopies())))
 	}
-	return max(1, m.bodyHeight()-2)
+	return max(1, m.bodyHeight()-4)
 }
 
-// scrollPick moves the window of picker rows so the cursor row is shown.
+// scrollPick moves the window of picker lines so the cursor's copy is shown.
 func (m *Model) scrollPick() {
-	scrollWindow(&m.pickTop, m.pick, m.pickRows())
+	lines := pickLines(m.pickCopies())
+	cursor := 0
+	for i, l := range lines {
+		if l.copy == m.pick {
+			cursor = i
+		}
+	}
+	scrollWindow(&m.pickTop, cursor, m.pickRows())
 }
 
 // openNew opens NEW on the wizard, empty, and clears the paste mode's text.

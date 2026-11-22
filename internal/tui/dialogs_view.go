@@ -134,37 +134,76 @@ func (m Model) centered(lines []string, blockW int) []string {
 	return out
 }
 
-// adoptBody is the ADOPT picker: one row per unmanaged copy, with its agent and
-// its folder. The rows are a window that follows the cursor.
+// adoptBody is the ADOPT picker: a filter row over the agents, then a heading per
+// agent with its unmanaged copies. Each copy shows its mark, its name, a conflict tag
+// when its name is unmanaged with different hashes, and its folder. The lines are a
+// window that follows the cursor.
 func (m Model) adoptBody(w int) []string {
-	rows := m.unmanaged()
-	lines := []string{m.styles.bold.Render(truncate("Adopt unmanaged skills into the vault", w)), ""}
-	if len(rows) == 0 {
+	copies := m.pickCopies()
+	lines := []string{m.styles.bold.Render(truncate("Adopt unmanaged skills into the vault", w)), "", m.filterRow(w), ""}
+	if len(copies) == 0 {
 		return append(lines, m.styles.dim.Render(truncate("No unmanaged skills in the configured agents.", w)))
 	}
-	nameW, agentW := 0, 0
-	for _, r := range rows {
-		nameW = max(nameW, lipgloss.Width(r.skill))
-		agentW = max(agentW, lipgloss.Width(r.agent.ID))
+	nameW := 0
+	for _, c := range copies {
+		nameW = max(nameW, lipgloss.Width(c.Skill))
 	}
 	nameW = min(nameW, max(5, w/2))
-	end := min(len(rows), m.pickTop+m.pickRows())
-	for i := m.pickTop; i < end; i++ {
-		r := rows[i]
-		selected := i == m.pick
-		marker, nameStyle := "  ", lipgloss.NewStyle()
-		if selected {
-			marker, nameStyle = pad(m.icons.Marker, 2), m.styles.bold
+	layout := pickLines(copies)
+	end := min(len(layout), min(m.pickTop, len(layout))+m.pickRows())
+	for _, l := range layout[min(m.pickTop, len(layout)):end] {
+		if l.copy < 0 {
+			lines = append(lines, m.styles.bold.Render(truncate(l.agent, w)))
+			continue
 		}
-		head := m.on(selected, m.styles.accent).Render(marker) +
-			m.on(selected, nameStyle).Render(pad(truncate(r.skill, nameW), nameW)) +
-			m.spaces(2, selected) +
-			m.on(selected, lipgloss.NewStyle()).Render(pad(r.agent.ID, agentW)) +
-			m.spaces(2, selected)
-		room := w - lipgloss.Width(head)
-		lines = append(lines, head+m.on(selected, m.styles.dim).Render(truncate(r.path, room)))
+		lines = append(lines, m.copyRow(copies[l.copy], l.copy == m.pick, nameW, w))
 	}
 	return lines
+}
+
+// copyRow is one copy of the ADOPT picker, cut to w: its markers, its name, a conflict
+// tag when it has one, then its folder.
+func (m Model) copyRow(c ops.UnmanagedCopy, selected bool, nameW, w int) string {
+	marker, nameStyle := "  ", lipgloss.NewStyle()
+	if selected {
+		marker, nameStyle = pad(m.icons.Marker, 2), m.styles.bold
+	}
+	mark := "  "
+	if m.pickMarks[cell{c.Skill, c.Agent}] {
+		mark = pad(m.icons.Mark, 2)
+	}
+	head := m.on(selected, m.styles.accent).Render(marker) +
+		m.on(selected, m.styles.accent).Render(mark) +
+		m.on(selected, nameStyle).Render(pad(truncate(c.Skill, nameW), nameW)) +
+		m.spaces(2, selected)
+	if c.Conflict {
+		head += m.on(selected, m.styles.warn).Render("conflict") + m.spaces(2, selected)
+	}
+	room := w - lipgloss.Width(head)
+	return head + m.on(selected, m.styles.dim).Render(truncate(c.Path, room))
+}
+
+// filterRow lists the agents the ADOPT filter switches between, All first, and marks
+// the one it shows. A row too wide for w is cut to plain text.
+func (m Model) filterRow(w int) string {
+	names := []string{"All"}
+	for _, a := range m.agents {
+		names = append(names, a.ID)
+	}
+	sep := m.styles.dim.Render(" · ")
+	parts := make([]string, len(names))
+	for i, n := range names {
+		if i == m.pickFilter {
+			parts[i] = m.styles.hintKey.Render(n)
+		} else {
+			parts[i] = m.styles.dim.Render(n)
+		}
+	}
+	row := strings.Join(parts, sep)
+	if lipgloss.Width(row) > w {
+		return m.styles.dim.Render(truncate(strings.Join(names, " · "), w))
+	}
+	return row
 }
 
 // newBody is NEW: the wizard, or the paste mode's editor with its live check under it.
