@@ -152,7 +152,11 @@ func printActions(w io.Writer, actions []ops.Action, dryRun bool) error {
 	}
 	for _, a := range actions {
 		if a.Op == ops.OpSkip {
-			if _, err := fmt.Fprintf(w, "skip %s in %s: %s\n", a.Skill, a.Agent, a.Reason); err != nil {
+			where := ""
+			if a.Agent != "" {
+				where = " in " + a.Agent
+			}
+			if _, err := fmt.Fprintf(w, "skip %s%s: %s\n", a.Skill, where, a.Reason); err != nil {
 				return err
 			}
 			continue

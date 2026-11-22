@@ -22,6 +22,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 - **IMPORT dialog (task 19):** source input with a `ctrl+o` file picker, a multi-select list for several skills (`ops.ImportOptions.Pick`, all or nothing), a fix-up form for `--fix`, and the force prompt for names already in the vault.
 - **New-skill scaffold and wizard (task 20):** `new --name --description [--compatible a,b] [--edit]` writes the §7.2 template. The TUI NEW wizard takes a name, a description and the agents, then `ctrl+s` scaffolds and offers to open the file in the editor. `tab` switches to the paste mode.
 - **Adopt (task 21):** identical copies in other agents become synced too. `adopt <skill…> -a <id>` takes globs over that agent's unmanaged skills. The ADOPT dialog groups copies by agent, with a filter row, `space` marks, a `conflict` tag and one summary notification.
+- **Guide (task 22):** `sapato guide` prints a generated `SKILL.md` for this vault and its configured agents. `--install` writes it as the vault skill `sapato`: identical content is a no-op, different content needs `--force`.
 
 ## Open nits (optional, from the last review)
 
