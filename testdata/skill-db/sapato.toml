@@ -1,5 +1,22 @@
+# Sapato vault manifest. Portable: no machine-specific paths here.
+
+# Vault format version. Only 1 is supported.
 format = 1
 
+# Desired installs, applied by `sapato sync`.
+# One line per agent name from your config's [agents]; values are skill
+# names or globs (* ? [a-z]). Agents not configured on a machine are skipped there.
+# `sync --prune` also uninstalls managed skills no longer listed.
+# Example:
+#   claude = ["code-review", "obsidian-*"]
+#   agents = ["*"]
 [assignments]
 claude = ["mocked-skill-0000[1-3]"]
 agents = ["*"]
+
+# Per-skill metadata, written by sapato (`sapato compat`, the TUI `c` key,
+# the NEW wizard). You can edit it by hand too.
+# compatible: agent names this skill works with; no table = every agent.
+# Example:
+#   [skills.code-review]
+#   compatible = ["claude"]
