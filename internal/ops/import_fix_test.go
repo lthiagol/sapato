@@ -1,12 +1,16 @@
 package ops
 
 import (
+	"archive/tar"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"sapato/internal/vault"
 )
 
 // skillMD returns a valid SKILL.md called name.
@@ -363,4 +367,134 @@ func TestImportSourceKinds(t *testing.T) {
 			t.Errorf("temp dir not removed: %d entries left", len(left))
 		}
 	})
+}
+
+func TestImportPick(t *testing.T) {
+	three := map[string]string{
+		"a/alpha/SKILL.md": skillMD("alpha"),
+		"b/beta/SKILL.md":  skillMD("beta"),
+		"c/gamma/SKILL.md": skillMD("gamma"),
+	}
+	tests := []struct {
+		name      string
+		files     map[string]string
+		pick      []string
+		all       bool
+		wantNames []string
+		wantErr   string
+	}{
+		{
+			name:      "only the picked folders are imported",
+			files:     three,
+			pick:      []string{"a/alpha", "c/gamma"},
+			wantNames: []string{"alpha", "gamma"},
+		},
+		{
+			name:    "a folder that is not in the source is refused",
+			files:   three,
+			pick:    []string{"a/alpha", "d/delta"},
+			wantErr: `no skill at "d/delta" in the source`,
+		},
+		{
+			name:    "one invalid pick imports nothing",
+			files:   map[string]string{"a/alpha/SKILL.md": skillMD("alpha"), "b/beta/SKILL.md": "---\nname: beta\n---\n"},
+			pick:    []string{"a/alpha", "b/beta"},
+			wantErr: "invalid skill",
+		},
+		{
+			name:    "pick with all is refused",
+			files:   three,
+			pick:    []string{"a/alpha"},
+			all:     true,
+			wantErr: "--pick does not apply with --all",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := fixtureVault(t)
+			before := snapshot(t, v.Path)
+			root := filepath.Join(t.TempDir(), "pack")
+			writeFiles(t, root, tt.files)
+
+			actions, err := Import(v, root, ImportOptions{Pick: tt.pick, All: tt.all})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Import() error = %v, want one containing %q", err, tt.wantErr)
+				}
+				if after := snapshot(t, v.Path); !reflect.DeepEqual(after, before) {
+					t.Error("refused import changed the vault")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Import() error = %v", err)
+			}
+			if len(actions) != len(tt.wantNames) {
+				t.Fatalf("actions = %+v, want %d", actions, len(tt.wantNames))
+			}
+			for _, name := range tt.wantNames {
+				if got := vaultSkill(t, v, name); !got.Valid {
+					t.Errorf("imported %s is invalid: %v", name, got.Problems)
+				}
+			}
+			if inVault(t, v, "beta") {
+				t.Error("beta was imported but not picked")
+			}
+		})
+	}
+}
+
+func TestImportPickTarball(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	v := fixtureVault(t)
+	before := snapshot(t, v.Path)
+	archive := makeTarball(t, append(skillEntries("tar-one"), skillEntries("tar-two")...)...)
+
+	if _, err := Import(v, archive, ImportOptions{Pick: []string{"tar-one", "tar-missing"}}); err == nil || !strings.Contains(err.Error(), `no skill "tar-missing" in the archive`) {
+		t.Fatalf("missing pick: error = %v", err)
+	}
+	if after := snapshot(t, v.Path); !reflect.DeepEqual(after, before) {
+		t.Fatal("refused tarball pick changed the vault")
+	}
+
+	actions, err := Import(v, archive, ImportOptions{Pick: []string{"tar-two"}})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	if len(actions) != 1 || actions[0].Skill != "tar-two" {
+		t.Fatalf("actions = %+v, want only tar-two", actions)
+	}
+	if inVault(t, v, "tar-one") {
+		t.Error("tar-one was imported but not picked")
+	}
+
+	bad := append(skillEntries("tar-ok"), []tarEntry{
+		{name: "tar-bad/", typeflag: tar.TypeDir},
+		{name: "tar-bad/SKILL.md", body: []byte("---\nname: tar-bad\n---\n")},
+	}...)
+	badArchive := makeTarball(t, bad...)
+	before = snapshot(t, v.Path)
+	if _, err := Import(v, badArchive, ImportOptions{Pick: []string{"tar-bad"}}); err == nil || !strings.Contains(err.Error(), "invalid skill tar-bad") {
+		t.Fatalf("picked invalid skill: error = %v", err)
+	}
+	if after := snapshot(t, v.Path); !reflect.DeepEqual(after, before) {
+		t.Fatal("refused invalid pick changed the vault")
+	}
+	actions, err = Import(v, badArchive, ImportOptions{Pick: []string{"tar-ok"}})
+	if err != nil {
+		t.Fatalf("unpicked invalid skill blocked a picked valid one: %v", err)
+	}
+	if len(actions) != 1 || actions[0].Skill != "tar-ok" || inVault(t, v, "tar-bad") {
+		t.Errorf("actions = %+v, want only tar-ok", actions)
+	}
+}
+
+// inVault reports whether the vault lists a skill called name, valid or not.
+func inVault(t *testing.T, v *vault.Vault, name string) bool {
+	t.Helper()
+	skills, err := v.Skills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.ContainsFunc(skills, func(s vault.Skill) bool { return s.Name == name })
 }

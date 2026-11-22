@@ -62,12 +62,14 @@ func newPathInput() textinput.Model {
 	return p
 }
 
-// sizeInputs fits the editor and the path input to their dialog block. The path
-// input draws its cursor one column past its width, so that column is left out.
+// sizeInputs fits the editor and the path inputs to their dialog block. The path
+// inputs draw their cursor one column past their width, so that column is left out.
 func (m *Model) sizeInputs() {
 	m.area.SetWidth(m.inputWidth())
 	m.area.SetHeight(max(1, m.bodyHeight()-2))
-	m.path.Width = max(1, m.inputWidth()-lipgloss.Width(m.path.Prompt)-1)
+	for _, in := range []*textinput.Model{&m.path, &m.fixup.name, &m.fixup.desc} {
+		in.Width = max(1, m.inputWidth()-lipgloss.Width(in.Prompt)-1)
+	}
 }
 
 // openAdopt opens the ADOPT picker with its cursor on the first copy.
@@ -202,6 +204,7 @@ func (m Model) onExportName(msg exportNameMsg) (Model, tea.Cmd) {
 }
 
 // pathKey types into the IMPORT or EXPORT prompt. enter runs it, and esc closes it.
+// ctrl+o opens the IMPORT file picker.
 func (m Model) pathKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.enter):
@@ -209,6 +212,8 @@ func (m Model) pathKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m.startImport()
 		}
 		return m.runExport()
+	case key.Matches(msg, m.keys.openFile) && m.mode == modeImport:
+		return m.openBrowse(), nil
 	case key.Matches(msg, m.keys.esc):
 		m.mode = modeNormal
 		return m, nil
@@ -216,17 +221,6 @@ func (m Model) pathKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.path, cmd = m.path.Update(msg)
 	return m, cmd
-}
-
-// startImport plans the import of the typed path. Import has no confirm of its
-// own, so only a refusal that --force overrides asks.
-func (m Model) startImport() (Model, tea.Cmd) {
-	src := strings.TrimSpace(m.path.Value())
-	if src == "" {
-		m.notify(noteError, "error", "import needs a path")
-		return m, nil
-	}
-	return m, planCmd(m.backend, action{op: ops.OpImport, src: src, back: modeImport})
 }
 
 // runExport writes the open skill to the typed path. Export has no dry run and no

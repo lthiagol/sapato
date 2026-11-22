@@ -41,6 +41,12 @@ func (m Model) body() []string {
 		return m.inputBlock(m.newBody)
 	case modeImport, modeExport:
 		return m.inputBlock(m.pathBody)
+	case modeImportList:
+		return m.dialogBlock(m.importListBody)
+	case modeImportFix:
+		return m.inputBlock(m.fixBody)
+	case modeImportBrowse:
+		return m.dialogBlock(m.browseBody)
 	case modeTheme:
 		return m.dialogBlock(m.themeBody)
 	case modeLog:
@@ -384,8 +390,16 @@ func (m Model) barHints() (own, global []key.Binding) {
 		return []key.Binding{adoptHint}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeNew:
 		return []key.Binding{m.keys.save}, []key.Binding{cancelHint}
-	case modeImport, modeExport:
+	case modeImport:
+		return []key.Binding{runHint, m.keys.openFile}, []key.Binding{cancelHint}
+	case modeExport:
 		return []key.Binding{runHint}, []key.Binding{cancelHint}
+	case modeImportList:
+		return []key.Binding{m.keys.mark, m.keys.markAll, importHint}, []key.Binding{moveHint, backHint, m.keys.log}
+	case modeImportFix:
+		return []key.Binding{fixHint, fieldHint}, []key.Binding{backHint}
+	case modeImportBrowse:
+		return []key.Binding{chooseHint, openHint, upHint, m.keys.dotfiles}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeTheme:
 		return []key.Binding{keepHint, restoreHint}, []key.Binding{moveHint, m.keys.log}
 	case modeLog:

@@ -63,6 +63,14 @@ func importArchive(v *vault.Vault, src string, opts ImportOptions) ([]Action, er
 	if err := checkManifest(m, skills); err != nil {
 		return nil, err
 	}
+	if len(opts.Pick) > 0 {
+		if skills, err = pickArchiveSkills(skills, opts.Pick); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkValid(skills); err != nil {
+		return nil, err
+	}
 	if opts.Name != "" {
 		if len(skills) != 1 {
 			return nil, errors.New("--name only applies to a single-skill archive")
@@ -249,8 +257,8 @@ func readManifest(r io.Reader) (*manifest, error) {
 	return &m, nil
 }
 
-// archiveSkills loads each skill folder extracted into dir, sorted by name. It fails
-// when there are none, or when one of them is invalid.
+// archiveSkills loads each skill folder extracted into dir, sorted by name, invalid
+// ones included. It fails when there are none.
 func archiveSkills(dir string) ([]vault.Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -262,15 +270,36 @@ func archiveSkills(dir string) ([]vault.Skill, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !s.Valid {
-			return nil, fmt.Errorf("invalid skill %s: %s", s.Name, strings.Join(s.Problems, "; "))
-		}
 		skills = append(skills, s)
 	}
 	if len(skills) == 0 {
 		return nil, errors.New("archive holds no skills")
 	}
 	return skills, nil
+}
+
+// checkValid fails on the first invalid skill of skills.
+func checkValid(skills []vault.Skill) error {
+	for _, s := range skills {
+		if !s.Valid {
+			return fmt.Errorf("invalid skill %s: %s", s.Name, strings.Join(s.Problems, "; "))
+		}
+	}
+	return nil
+}
+
+// pickArchiveSkills keeps the skills named in pick, in that order. Each name must be
+// a skill of the archive.
+func pickArchiveSkills(skills []vault.Skill, pick []string) ([]vault.Skill, error) {
+	chosen := make([]vault.Skill, 0, len(pick))
+	for _, name := range pick {
+		i := slices.IndexFunc(skills, func(s vault.Skill) bool { return s.Name == name })
+		if i < 0 {
+			return nil, fmt.Errorf("no skill %q in the archive", name)
+		}
+		chosen = append(chosen, skills[i])
+	}
+	return chosen, nil
 }
 
 // checkManifest checks, when the archive has a manifest, that it lists exactly the

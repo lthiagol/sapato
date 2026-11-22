@@ -20,8 +20,12 @@ type keyMap struct {
 	compat, export, remove   key.Binding
 	yes, no                  key.Binding
 	closeView                key.Binding
-	// save saves the NEW editor.
+	// save saves the NEW editor and the IMPORT fix-up form.
 	save key.Binding
+	// The IMPORT keys: openFile opens the file picker, markAll marks every skill of
+	// the list, parent goes up a folder in the picker, dotfiles shows or hides the
+	// dot entries, and field moves between the fix-up form's inputs.
+	openFile, markAll, parent, dotfiles, field key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -61,6 +65,12 @@ func newKeyMap() keyMap {
 		no:        key.NewBinding(key.WithHelp("n", "no")),
 		closeView: key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc", "back")),
 		save:      key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
+
+		openFile: key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "browse")),
+		markAll:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "mark all")),
+		parent:   key.NewBinding(key.WithKeys("backspace"), key.WithHelp("backspace", "up")),
+		dotfiles: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "dotfiles")),
+		field:    key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "next field")),
 	}
 }
 
@@ -81,6 +91,13 @@ var (
 	keepHint    = key.NewBinding(key.WithHelp("enter", "keep"))
 	cancelHint  = key.NewBinding(key.WithHelp("esc", "cancel"))
 	restoreHint = key.NewBinding(key.WithHelp("esc", "restore"))
+	// The IMPORT hints name the keys of its list, file picker and fix-up form.
+	importHint = key.NewBinding(key.WithHelp("enter", "import"))
+	fixHint    = key.NewBinding(key.WithHelp("ctrl+s", "import"))
+	fieldHint  = key.NewBinding(key.WithHelp("tab", "next field"))
+	chooseHint = key.NewBinding(key.WithHelp("space", "choose"))
+	openHint   = key.NewBinding(key.WithHelp("enter", "open"))
+	upHint     = key.NewBinding(key.WithHelp("backspace", "up"))
 )
 
 // mainHints lists the main screen's own bindings in hint order: the actions the bar

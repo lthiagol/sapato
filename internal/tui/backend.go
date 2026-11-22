@@ -24,7 +24,8 @@ type Backend interface {
 	ToggleCompat(skill string, agents, configured []string) ([]string, error)
 	Remove(skill string, opts ops.Options) (ops.Action, error)
 	Create(content []byte, opts ops.Options) (ops.Action, error)
-	Import(src string, opts ops.Options) ([]ops.Action, error)
+	Discover(src string) ([]ops.Candidate, error)
+	Import(src string, opts ops.ImportOptions) ([]ops.Action, error)
 	ExportName(skill string) (string, error)
 	Export(skill, path string) ([]ops.Action, error)
 	Diff(agent config.Agent, skill string) ([]ops.FileChange, error)
@@ -78,9 +79,18 @@ func (b opsBackend) Create(content []byte, opts ops.Options) (ops.Action, error)
 	return ops.Create(b.v, content, opts)
 }
 
+// Discover lists the skills of an import source without changing the vault. The
+// source is read again by Import, so the temp copy is removed here. A path may start
+// with ~.
+func (b opsBackend) Discover(src string) ([]ops.Candidate, error) {
+	cands, cleanup, err := ops.Discover(expandHome(src), "")
+	cleanup()
+	return cands, err
+}
+
 // Import takes a folder, a git URL or a tarball. A path may start with ~.
-func (b opsBackend) Import(src string, opts ops.Options) ([]ops.Action, error) {
-	return ops.Import(b.v, expandHome(src), ops.ImportOptions{Options: opts})
+func (b opsBackend) Import(src string, opts ops.ImportOptions) ([]ops.Action, error) {
+	return ops.Import(b.v, expandHome(src), opts)
 }
 
 // ExportName is the default file name of an export of skill, as sapato export names it.

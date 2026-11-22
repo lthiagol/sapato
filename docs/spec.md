@@ -335,7 +335,7 @@ Libraries: `github.com/spf13/cobra`, `github.com/pelletier/go-toml/v2`, `gopkg.i
 
 - gzip-compressed tar. Top-level entries are skill folders `<name>/…`; one archive may hold several skills. Nothing else at top level (a `sapato-export.json` manifest with `{"format":1,"skills":{name:hash},"compatible":{name:[agents]}}` is written on export — `compatible` holds only skills with a compat table and is omitted when empty — and the manifest is ignored on import if absent).
 - Export: files per hashing rules (§4: no dot-paths, no symlinks), modes preserved (0755 for exec, 0644 otherwise), dirs 0755, deterministic order, mtime zero.
-- Import safety: reject absolute paths, `..` components, symlinks/hardlinks/devices, entries outside a top-level skill folder, total uncompressed size > 50 MiB, > 10k entries. Extract to a temp dir, validate every skill, then copy all-or-nothing into the vault (existing names refused unless `--force`; `--name` only allowed for single-skill archives).
+- Import safety: reject absolute paths, `..` components, symlinks/hardlinks/devices, entries outside a top-level skill folder, total uncompressed size > 50 MiB, > 10k entries. Extract to a temp dir, validate every skill (when the TUI imports a picked subset, §9.4, only the picked skills must be valid; the manifest is still checked in full), then copy all-or-nothing into the vault (existing names refused unless `--force`; `--name` only allowed for single-skill archives).
 
 ## 12. Out of scope (for now)
 

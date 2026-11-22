@@ -64,6 +64,7 @@ func openBackend(cfg config.Config) (Backend, error) {
 // and the vault prompt follows it, or opens alone when only the vault is missing.
 func model(cfg config.Config, b Backend, th theme.Theme, set icons.Set) Model {
 	m := New(b, cfg.Agents, th, set, os.Getenv("NO_COLOR") != "")
+	m.home, _ = os.UserHomeDir()
 	if b == nil {
 		m.noVault = cfg.Vault
 	}

@@ -48,6 +48,9 @@ const (
 	modeAdopt
 	modeNew
 	modeImport
+	modeImportList
+	modeImportFix
+	modeImportBrowse
 	modeExport
 	modeTheme
 	modeLog
@@ -65,7 +68,8 @@ type cell struct {
 // the targets of a skill action. force is set only once the user has accepted a
 // force prompt. skipIncompatible reports an incompatible install as a skip, not a
 // refusal (A). back is the mode a confirm of the action returns to. content, src and
-// path are the inputs of a create, an import and an export.
+// path are the inputs of a create, an import and an export. importOpts are the
+// choices of an import; the dry run and force flags are set when it runs.
 type action struct {
 	op               string
 	skill            string
@@ -76,6 +80,7 @@ type action struct {
 	content          []byte
 	src              string
 	path             string
+	importOpts       ops.ImportOptions
 }
 
 // pending is an action that waits for y or n. A plain confirm shows plan. A
@@ -127,6 +132,10 @@ type Model struct {
 	pickTop   int             // first ADOPT row shown
 	area      textarea.Model  // the NEW editor
 	path      textinput.Model // the IMPORT and EXPORT path
+	home      string          // the folder the IMPORT file picker opens in when the source names none
+	multi     candList        // the IMPORT list of several skills
+	fixup     fixForm         // the IMPORT fix-up form
+	browse    browser         // the IMPORT file picker
 
 	notes   []notification // every notification of the session, oldest first, at most maxNotes
 	pushed  int            // notifications pushed so far, LOG drops the oldest past maxNotes
@@ -272,6 +281,8 @@ func (m Model) handle(msg tea.Msg) (Model, tea.Cmd) {
 		return m.onApplied(msg)
 	case diffMsg:
 		return m.onDiff(msg)
+	case discoveredMsg:
+		return m.onDiscovered(msg)
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
@@ -300,6 +311,12 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.newKey(msg)
 	case modeImport, modeExport:
 		return m.pathKey(msg)
+	case modeImportList:
+		return m.importListKey(msg)
+	case modeImportFix:
+		return m.importFixKey(msg)
+	case modeImportBrowse:
+		return m.browseKey(msg)
 	case modeTheme:
 		return m.themeKey(msg)
 	case modeLog:
@@ -781,7 +798,9 @@ func perform(b Backend, act action, dryRun bool) ([]ops.Action, error) {
 	case ops.OpCreate:
 		return one(b.Create(act.content, opts))
 	case ops.OpImport:
-		return b.Import(act.src, opts)
+		o := act.importOpts
+		o.Options = opts
+		return b.Import(act.src, o)
 	case opExport:
 		skips, err := b.Export(act.skill, act.path)
 		if err != nil {

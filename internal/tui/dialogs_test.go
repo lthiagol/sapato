@@ -39,19 +39,83 @@ func (f *fakeBackend) Create(content []byte, opts ops.Options) (ops.Action, erro
 	return ops.Action{Op: ops.OpCreate, Skill: s.Name, Path: "/vault/skills/" + s.Name}, nil
 }
 
-func (f *fakeBackend) Import(src string, opts ops.Options) ([]ops.Action, error) {
-	f.calls = append(f.calls, fmt.Sprintf("import %s dry=%t force=%t", src, opts.DryRun, opts.Force))
+// candidates is what the fake reads from src: the candidates set for it, else one
+// valid skill named after the source.
+func (f *fakeBackend) candidates(src string) []ops.Candidate {
+	if cands, ok := f.discovered[src]; ok {
+		return cands
+	}
+	name := strings.TrimSuffix(filepath.Base(src), ".tar.gz")
+	return []ops.Candidate{{Rel: ".", Hint: name, Name: name, Valid: true}}
+}
+
+// Discover reads the candidates of src without recording a call, as the source input
+// reads them before the import is planned.
+func (f *fakeBackend) Discover(src string) ([]ops.Candidate, error) {
+	if f.discoverErr != nil {
+		return nil, f.discoverErr
+	}
+	return f.candidates(src), nil
+}
+
+// Import answers from the candidates of src. A pick takes the named candidates, all
+// or nothing, and a fix takes the name and the description it is given.
+func (f *fakeBackend) Import(src string, opts ops.ImportOptions) ([]ops.Action, error) {
+	f.calls = append(f.calls, fmt.Sprintf("import %s dry=%t force=%t%s", src, opts.DryRun, opts.Force, importArgs(opts)))
 	if err := f.opErr[ops.OpImport]; err != nil {
 		return nil, err
 	}
-	name := strings.TrimSuffix(filepath.Base(src), ".tar.gz")
-	if f.inVault[name] && !opts.Force {
-		if strings.HasSuffix(src, ".tar.gz") {
-			return nil, refusal(fmt.Sprintf("import %s: already in the vault (use --force): %s", src, name), "already in the vault: "+name)
+	cands := f.candidates(src)
+	var chosen []ops.Candidate
+	if len(opts.Pick) > 0 {
+		for _, rel := range opts.Pick {
+			i := slices.IndexFunc(cands, func(o ops.Candidate) bool { return o.Rel == rel })
+			if i < 0 {
+				return nil, fmt.Errorf("import %s: no skill at %q in the source", src, rel)
+			}
+			chosen = append(chosen, cands[i])
 		}
-		return nil, refusal(fmt.Sprintf("import %s: %s is already in the vault (use --force)", src, name), "already in the vault")
+	} else {
+		if len(cands) != 1 {
+			return nil, fmt.Errorf("import %s: several skills found", src)
+		}
+		chosen = cands
 	}
-	return []ops.Action{{Op: ops.OpImport, Skill: name, Path: "/vault/skills/" + name}}, nil
+	var names []string
+	for _, c := range chosen {
+		name := c.Name
+		switch {
+		case opts.Fix && opts.Name != "":
+			name = opts.Name
+		case !opts.Fix && !c.Valid:
+			return nil, fmt.Errorf("import %s: invalid skill: %s", src, strings.Join(c.Problems, "; "))
+		}
+		names = append(names, name)
+	}
+	var actions []ops.Action
+	for _, name := range names {
+		if f.inVault[name] && !opts.Force {
+			if strings.HasSuffix(src, ".tar.gz") {
+				return nil, refusal(fmt.Sprintf("import %s: already in the vault (use --force): %s", src, name), "already in the vault: "+name)
+			}
+			return nil, refusal(fmt.Sprintf("import %s: %s is already in the vault (use --force)", src, name), "already in the vault")
+		}
+		actions = append(actions, ops.Action{Op: ops.OpImport, Skill: name, Path: "/vault/skills/" + name})
+	}
+	return actions, nil
+}
+
+// importArgs describes the choices of an import that the fake records, after the
+// source: the pick, and the fix with its name and description.
+func importArgs(opts ops.ImportOptions) string {
+	var b strings.Builder
+	if len(opts.Pick) > 0 {
+		fmt.Fprintf(&b, " pick=%s", strings.Join(opts.Pick, ","))
+	}
+	if opts.Fix {
+		fmt.Fprintf(&b, " fix name=%s desc=%s", opts.Name, opts.Description)
+	}
+	return b.String()
 }
 
 func (f *fakeBackend) Remove(skill string, opts ops.Options) (ops.Action, error) {

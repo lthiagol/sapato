@@ -21,6 +21,9 @@ type ImportOptions struct {
 	Subdir string
 	// All imports every skill the source holds, all or nothing.
 	All bool
+	// Pick imports the candidates whose folders (Rel) are named, all or nothing. It
+	// does not apply with All.
+	Pick []string
 	// Fix repairs the frontmatter of an invalid skill when --fix can (spec §7.1).
 	// It does not apply to a tarball.
 	Fix bool
@@ -42,6 +45,9 @@ func Import(v *vault.Vault, src string, opts ImportOptions) ([]Action, error) {
 	if opts.All && opts.Name != "" {
 		return nil, fmt.Errorf("import %s: --name does not apply with --all", src)
 	}
+	if opts.All && len(opts.Pick) > 0 {
+		return nil, fmt.Errorf("import %s: --pick does not apply with --all", src)
+	}
 	if isArchive(src) {
 		if opts.Fix || opts.Description != "" {
 			return nil, fmt.Errorf("import %s: --fix and --description do not apply to a tarball", src)
@@ -58,7 +64,7 @@ func Import(v *vault.Vault, src string, opts ImportOptions) ([]Action, error) {
 	if err != nil {
 		return nil, fmt.Errorf("import %s: %w", src, err)
 	}
-	chosen, err := chooseCandidates(cands, opts.All)
+	chosen, err := chooseCandidates(cands, opts.All, opts.Pick)
 	if err != nil {
 		return nil, fmt.Errorf("import %s: %w", src, err)
 	}
@@ -124,10 +130,12 @@ func presentRefusal(names []string) error {
 	return forceRefusal("already in the vault (use --force): "+strings.Join(names, ", "), "already in the vault: "+strings.Join(names, ", "))
 }
 
-// chooseCandidates returns the candidates to import. With all, every candidate.
-// Otherwise the source must hold exactly one.
-func chooseCandidates(cands []Candidate, all bool) ([]Candidate, error) {
+// chooseCandidates returns the candidates to import. With all, every candidate. With
+// pick, the candidates it names. Otherwise the source must hold exactly one.
+func chooseCandidates(cands []Candidate, all bool, pick []string) ([]Candidate, error) {
 	switch {
+	case len(pick) > 0:
+		return pickCandidates(cands, pick)
 	case len(cands) == 0:
 		return nil, errors.New("no skill found")
 	case all || len(cands) == 1:
@@ -138,6 +146,19 @@ func chooseCandidates(cands []Candidate, all bool) ([]Candidate, error) {
 		rels[i] = c.Rel
 	}
 	return nil, fmt.Errorf("several skills found (%s): pick one with --subdir or import all with --all", strings.Join(rels, ", "))
+}
+
+// pickCandidates returns the candidates whose folders are named in pick, in that order.
+func pickCandidates(cands []Candidate, pick []string) ([]Candidate, error) {
+	chosen := make([]Candidate, 0, len(pick))
+	for _, rel := range pick {
+		i := slices.IndexFunc(cands, func(c Candidate) bool { return c.Rel == rel })
+		if i < 0 {
+			return nil, fmt.Errorf("no skill at %q in the source", rel)
+		}
+		chosen = append(chosen, cands[i])
+	}
+	return chosen, nil
 }
 
 // prepareItem checks candidate c for import. A skill whose name differs from --name

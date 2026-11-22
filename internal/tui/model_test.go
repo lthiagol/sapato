@@ -47,6 +47,11 @@ type fakeBackend struct {
 	// compatList is what ToggleCompat returns, and compatErr its error.
 	compatList []string
 	compatErr  error
+	// discovered is what Discover and Import read from each source. A source it does
+	// not name holds one valid skill, named after the source. discoverErr is what
+	// Discover fails with.
+	discovered  map[string][]ops.Candidate
+	discoverErr error
 }
 
 func (f *fakeBackend) Status(_ []config.Agent) ([]ops.Row, error) {
@@ -220,6 +225,7 @@ func keyMsg(s string) tea.KeyMsg {
 		"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
 		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "ctrl+c": tea.KeyCtrlC, "ctrl+s": tea.KeyCtrlS,
 		"space": tea.KeySpace, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
+		"ctrl+o": tea.KeyCtrlO, "tab": tea.KeyTab, "shift+tab": tea.KeyShiftTab, "backspace": tea.KeyBackspace,
 	}
 	if t, ok := special[s]; ok {
 		return tea.KeyMsg{Type: t}
