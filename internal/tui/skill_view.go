@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"sapato/internal/ops"
+	"sapato/internal/tui/icons"
 )
 
 // The skill screen of spec §9.3: a sidebar with one row per configured agent, and
@@ -78,9 +79,9 @@ func (m Model) skillLayout() skillPanes {
 		side := min(natSide, max(3, h/2))
 		return skillPanes{stacked: true, side: paneSize{full, side}, detail: paneSize{full, max(2, h-side)}}
 	}
-	// A row is 8 columns of marks, gaps and the status glyph, then the id and the
-	// word. The borders and a column of padding each side add 4.
-	sideW := min(max(sidebarMinW, 8+idW+wordW+4), w/2)
+	// A row is 8 columns of marks, gaps and the status glyph, then the id, the word
+	// and the incompatible mark. The borders and a column of padding each side add 4.
+	sideW := min(max(sidebarMinW, 8+idW+wordW+lipgloss.Width(incompatMark(m.icons))+4), w/2)
 	detailW := w - sideW - 3
 	if h == 0 {
 		natural := max(natSide, len(m.detailLines(detailW-4))+2)
@@ -141,7 +142,8 @@ func (m Model) sideLines(w int) []string {
 }
 
 // sideRow is one agent of the sidebar: its mark, the cursor marker, the agent's ID,
-// and the status icon and word. The cursor's row is drawn in the row style.
+// and the status icon and word. An installed copy the skill is not compatible with
+// ends in the incompatible mark. The cursor's row is drawn in the row style.
 func (m Model) sideRow(i, idW, wordW, w int) string {
 	a := m.agents[i]
 	selected := i == m.cur
@@ -160,12 +162,29 @@ func (m Model) sideRow(i, idW, wordW, w int) string {
 	if selected {
 		idStyle = m.styles.bold
 	}
-	return m.draw(w, selected,
-		seg{mark + marker, m.styles.accent},
-		seg{pad(a.ID, idW), idStyle},
-		seg{"  ", lipgloss.NewStyle()},
-		seg{glyph + " " + pad(word, wordW), style},
-	)
+	segs := []seg{
+		{mark + marker, m.styles.accent},
+		{pad(a.ID, idW), idStyle},
+		{"  ", lipgloss.NewStyle()},
+		{glyph + " " + pad(word, wordW), style},
+	}
+	if m.installedIncompatible(cell{m.open, a.ID}) {
+		segs = append(segs, seg{incompatMark(m.icons), m.styles.dim})
+	}
+	return m.draw(w, selected, segs...)
+}
+
+// incompatMark is the glyph that follows the status of an installed copy the skill is
+// not compatible with, with the space before it.
+func incompatMark(set icons.Set) string {
+	return " " + set.Status[ops.Incompatible]
+}
+
+// installedIncompatible reports whether the copy of a skill in an agent is installed
+// there while the skill is not compatible with the agent. Such a copy keeps its
+// status (spec §6).
+func (m Model) installedIncompatible(c cell) bool {
+	return m.incompat[c] && hasFolder(m.cells[c])
 }
 
 // detailLines is the details pane of the open skill, one string per line, each cut
@@ -207,6 +226,7 @@ func (m Model) detailLines(w int) []string {
 			add(seg{l, plain})
 		}
 		add(seg{pad("vault", labelW), dim}, seg{orDash(s.Dir), plain})
+		add(seg{pad("compat", labelW), dim}, seg{compatText(s.Compat), plain})
 		if !s.Valid {
 			for _, p := range s.Problems {
 				add(seg{"  " + p, m.styles.fail})
@@ -234,6 +254,9 @@ func (m Model) detailLines(w int) []string {
 		add(segs...)
 		if hasFolder(state) {
 			add(seg{"  ", plain}, seg{filepath.Join(a.Path, m.open), dim})
+		}
+		if m.installedIncompatible(cell{m.open, a.ID}) {
+			add(seg{"  not compatible with " + a.ID, m.styles.warn})
 		}
 	}
 

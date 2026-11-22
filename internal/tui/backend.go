@@ -21,6 +21,7 @@ type Backend interface {
 	Uninstall(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
 	Update(agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error)
 	Adopt(agent config.Agent, skill string, opts ops.Options) (ops.Action, error)
+	ToggleCompat(skill string, agents, configured []string) ([]string, error)
 	Remove(skill string, opts ops.Options) (ops.Action, error)
 	Create(content []byte, opts ops.Options) (ops.Action, error)
 	Import(src string, opts ops.Options) ([]ops.Action, error)
@@ -61,6 +62,12 @@ func (b opsBackend) Update(agents []config.Agent, skills []string, opts ops.Opti
 
 func (b opsBackend) Adopt(agent config.Agent, skill string, opts ops.Options) (ops.Action, error) {
 	return ops.Adopt(b.v, agent, skill, opts)
+}
+
+// ToggleCompat flips the compatibility of skill with each agent, and returns the new
+// list, nil for every agent.
+func (b opsBackend) ToggleCompat(skill string, agents, configured []string) ([]string, error) {
+	return ops.ToggleCompat(b.v, skill, agents, configured)
 }
 
 func (b opsBackend) Remove(skill string, opts ops.Options) (ops.Action, error) {

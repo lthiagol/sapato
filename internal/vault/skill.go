@@ -32,6 +32,9 @@ type Skill struct {
 	Hash        string
 	Valid       bool
 	Problems    []string
+	// Compat is the compatible list of the skill, nil when it is compatible with
+	// every agent. Vault.Skills sets it; Load does not.
+	Compat []string
 }
 
 // Load reads and validates the skill folder dir as a skill called name. The

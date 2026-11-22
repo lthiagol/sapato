@@ -10,7 +10,7 @@ import (
 )
 
 // TestSetsMatchSpec pins every glyph of spec §9.5 and checks that each set
-// covers the eight states of §6.
+// covers the nine states of §6.
 func TestSetsMatchSpec(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -23,6 +23,7 @@ func TestSetsMatchSpec(t *testing.T) {
 			status: map[ops.State]string{
 				ops.Synced: "", ops.Outdated: "", ops.Modified: "", ops.NotInstalled: "",
 				ops.Invalid: "", ops.Orphaned: "", ops.Unmanaged: "", ops.Missing: "",
+				ops.Incompatible: "",
 			},
 			marker: "", mark: "", exec: "", info: "",
 		},
@@ -31,6 +32,7 @@ func TestSetsMatchSpec(t *testing.T) {
 			status: map[ops.State]string{
 				ops.Synced: "✔", ops.Outdated: "↑", ops.Modified: "✎", ops.NotInstalled: "·",
 				ops.Invalid: "✖", ops.Orphaned: "∅", ops.Unmanaged: "◆", ops.Missing: "!",
+				ops.Incompatible: "⊘",
 			},
 			marker: "▶", mark: "■", exec: "⚙", info: "ℹ",
 		},
@@ -39,6 +41,7 @@ func TestSetsMatchSpec(t *testing.T) {
 			status: map[ops.State]string{
 				ops.Synced: "ok", ops.Outdated: "up", ops.Modified: "mod", ops.NotInstalled: ".",
 				ops.Invalid: "x", ops.Orphaned: "orp", ops.Unmanaged: "?", ops.Missing: "!",
+				ops.Incompatible: "-",
 			},
 			marker: ">", mark: "*", exec: "x", info: "i",
 		},

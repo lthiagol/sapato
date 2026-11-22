@@ -583,6 +583,15 @@ func shortHash(h string) string {
 	return algo + ":" + hex
 }
 
+// compatText is a compatible list as the details pane shows it: its agents, or
+// "all agents" when list is nil.
+func compatText(list []string) string {
+	if list == nil {
+		return "all agents"
+	}
+	return strings.Join(list, ", ")
+}
+
 func orDash(s string) string {
 	if s == "" {
 		return "-"

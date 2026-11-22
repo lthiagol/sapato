@@ -201,6 +201,8 @@ func (t Theme) StatusColor(s ops.State) lipgloss.Color {
 		return t.Cyan
 	case ops.Missing:
 		return t.Pink
+	case ops.Incompatible:
+		return t.Overlay
 	}
 	return t.Text
 }

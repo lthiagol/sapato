@@ -63,17 +63,19 @@ type cell struct {
 
 // action is one mutation, as the UI runs it through the Backend. The agents are
 // the targets of a skill action. force is set only once the user has accepted a
-// force prompt. back is the mode a confirm of the action returns to. content,
-// src and path are the inputs of a create, an import and an export.
+// force prompt. skipIncompatible reports an incompatible install as a skip, not a
+// refusal (A). back is the mode a confirm of the action returns to. content, src and
+// path are the inputs of a create, an import and an export.
 type action struct {
-	op      string
-	skill   string
-	agents  []config.Agent
-	force   bool
-	back    mode
-	content []byte
-	src     string
-	path    string
+	op               string
+	skill            string
+	agents           []config.Agent
+	force            bool
+	skipIncompatible bool
+	back             mode
+	content          []byte
+	src              string
+	path             string
 }
 
 // pending is an action that waits for y or n. A plain confirm shows plan. A
@@ -94,6 +96,7 @@ type Model struct {
 	icons   icons.Set
 
 	cells       map[cell]ops.State     // status of each skill in each agent; absent means blank
+	incompat    map[cell]bool          // the pairs whose skill is not compatible with the agent
 	names       []string               // every skill name from the last load, sorted
 	vaultSkills map[string]vault.Skill // vault skills of the last load, by name
 	skills      []string               // names that match query: the grid rows
@@ -153,6 +156,7 @@ func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColo
 		styles:      newStyles(th, noColor),
 		icons:       set,
 		cells:       map[cell]ops.State{},
+		incompat:    map[cell]bool{},
 		vaultSkills: map[string]vault.Skill{},
 		marks:       map[string]bool{},
 		filter:      filter,
@@ -205,6 +209,14 @@ type detailMsg struct {
 	err    error
 }
 
+// compatMsg carries the result of a compatibility toggle: the new list, nil for every
+// agent.
+type compatMsg struct {
+	skill string
+	list  []string
+	err   error
+}
+
 // diffMsg carries the file changes of one installed skill.
 type diffMsg struct {
 	skill   string
@@ -252,6 +264,8 @@ func (m Model) handle(msg tea.Msg) (Model, tea.Cmd) {
 		return m, m.detailCmd()
 	case detailMsg:
 		return m.onDetail(msg), nil
+	case compatMsg:
+		return m.onCompat(msg)
 	case planMsg:
 		return m.onPlan(msg)
 	case appliedMsg:
@@ -382,13 +396,15 @@ func (m Model) skillKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.mark):
 		m.toggleMark()
 	case key.Matches(msg, k.install):
-		return m.startAction(ops.OpInstall, m.targets())
+		return m.startAction(action{op: ops.OpInstall, agents: m.targets()})
 	case key.Matches(msg, k.uninstall):
-		return m.startAction(ops.OpUninstall, m.targets())
+		return m.startAction(action{op: ops.OpUninstall, agents: m.targets()})
 	case key.Matches(msg, k.update):
-		return m.startAction(ops.OpUpdate, m.targets())
+		return m.startAction(action{op: ops.OpUpdate, agents: m.targets()})
 	case key.Matches(msg, k.installAll):
-		return m.startAction(ops.OpInstall, m.agents)
+		return m.startAction(action{op: ops.OpInstall, agents: m.agents, skipIncompatible: true})
+	case key.Matches(msg, k.compat):
+		return m.toggleCompat()
 	case key.Matches(msg, k.adopt):
 		return m.adopt()
 	case key.Matches(msg, k.diff):
@@ -494,19 +510,54 @@ func (m Model) targets() []config.Agent {
 	return out
 }
 
-// startAction plans op on the open skill in agents. The dry run never forces, so
-// the user sees what ops would do, or what it refuses, before anything changes.
-// Install and update copy from the vault, so they wait on a skill the vault lacks.
-func (m Model) startAction(op string, agents []config.Agent) (Model, tea.Cmd) {
-	if len(agents) == 0 {
+// agentNames are the IDs of agents, in order.
+func agentNames(agents []config.Agent) []string {
+	names := make([]string, 0, len(agents))
+	for _, a := range agents {
+		names = append(names, a.ID)
+	}
+	return names
+}
+
+// startAction plans act on the open skill. The dry run never forces, so the user
+// sees what ops would do, or what it refuses, before anything changes. Install and
+// update copy from the vault, so they wait on a skill the vault lacks.
+func (m Model) startAction(act action) (Model, tea.Cmd) {
+	act.skill = m.open
+	if len(act.agents) == 0 {
 		m.notify(noteError, "error", "no agents configured")
 		return m, nil
 	}
-	if op != ops.OpUninstall && !m.inVault(m.open) {
+	if act.op != ops.OpUninstall && !m.inVault(m.open) {
 		m.notify(noteError, "error", m.open+" is not in the vault")
 		return m, nil
 	}
-	return m, planCmd(m.backend, action{op: op, skill: m.open, agents: agents})
+	return m, planCmd(m.backend, act)
+}
+
+// toggleCompat flips the compatibility of the open skill with the marked agents, or
+// the cursor's agent. The skill must be in the vault, since the table lives there.
+func (m Model) toggleCompat() (Model, tea.Cmd) {
+	targets := m.targets()
+	if len(targets) == 0 {
+		m.notify(noteError, "error", "no agents configured")
+		return m, nil
+	}
+	if !m.inVault(m.open) {
+		m.notify(noteError, "error", m.open+" is not in the vault")
+		return m, nil
+	}
+	return m, compatCmd(m.backend, m.open, agentNames(targets), agentNames(m.agents))
+}
+
+// onCompat shows the result of a toggle, and reloads so the grid shows it.
+func (m Model) onCompat(msg compatMsg) (Model, tea.Cmd) {
+	if msg.err != nil {
+		m.notify(noteError, "error", msg.err.Error())
+		return m, nil
+	}
+	m.notify(noteSuccess, "compat", msg.skill+": "+compatText(msg.list))
+	return m, m.loadCmd(false)
 }
 
 // adopt takes the first target whose copy is unmanaged. Adopt copies one folder
@@ -689,6 +740,14 @@ func planCmd(b Backend, act action) tea.Cmd {
 	}
 }
 
+// compatCmd toggles the compatibility of skill with agents.
+func compatCmd(b Backend, skill string, agents, configured []string) tea.Cmd {
+	return func() tea.Msg {
+		list, err := b.ToggleCompat(skill, agents, configured)
+		return compatMsg{skill: skill, list: list, err: err}
+	}
+}
+
 // applyCmd runs act for real.
 func applyCmd(b Backend, act action) tea.Cmd {
 	return func() tea.Msg {
@@ -706,7 +765,7 @@ func diffCmd(b Backend, skill string, agent config.Agent) tea.Cmd {
 
 // perform calls the Backend for act. A dry run changes nothing.
 func perform(b Backend, act action, dryRun bool) ([]ops.Action, error) {
-	opts := ops.Options{Force: act.force, DryRun: dryRun}
+	opts := ops.Options{Force: act.force, DryRun: dryRun, SkipIncompatible: act.skipIncompatible}
 	skills := []string{act.skill}
 	switch act.op {
 	case ops.OpInstall:
@@ -777,9 +836,13 @@ func summarize(acts []ops.Action) string {
 // to the grid when its skill is gone.
 func (m *Model) load(rows []ops.Row, skills []vault.Skill) {
 	m.cells = make(map[cell]ops.State, len(rows))
+	m.incompat = make(map[cell]bool)
 	names := make(map[string]bool)
 	for _, r := range rows {
 		m.cells[cell{r.Skill, r.Agent}] = r.Status
+		if !r.Compatible {
+			m.incompat[cell{r.Skill, r.Agent}] = true
+		}
 		names[r.Skill] = true
 	}
 	m.vaultSkills = make(map[string]vault.Skill, len(skills))

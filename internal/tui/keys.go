@@ -17,7 +17,7 @@ type keyMap struct {
 	// The skill screen's keys. adopt is also a main key, above.
 	mark, install, uninstall key.Binding
 	update, diff, installAll key.Binding
-	export, remove           key.Binding
+	compat, export, remove   key.Binding
 	yes, no                  key.Binding
 	closeView                key.Binding
 	// save saves the NEW editor.
@@ -52,6 +52,7 @@ func newKeyMap() keyMap {
 		update:     key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "update")),
 		diff:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
 		installAll: key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "install all")),
+		compat:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "compat")),
 		export:     key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "export")),
 		remove:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "remove")),
 
@@ -102,7 +103,7 @@ func (k keyMap) filterHints() []key.Binding {
 // skillHints lists the skill screen's own bindings in hint order: the actions the bar
 // shows in its first row.
 func (k keyMap) skillHints() []key.Binding {
-	return []key.Binding{k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.export, k.remove}
+	return []key.Binding{k.mark, k.install, k.uninstall, k.update, k.diff, k.adopt, k.installAll, k.compat, k.export, k.remove}
 }
 
 // skillGlobals lists the skill screen's global bindings, which the bar shows in its

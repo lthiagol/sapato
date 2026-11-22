@@ -164,6 +164,99 @@ func TestCompat(t *testing.T) {
 	}
 }
 
+func TestToggleCompat(t *testing.T) {
+	tests := []struct {
+		name       string
+		skill      string
+		setFirst   []string // list set before the call, when non-nil
+		agents     []string // agents to toggle
+		configured []string
+		wantErr    string
+		want       []string // the list returned, and the one stored after
+	}{
+		{
+			name:       "no list: toggling an agent off keeps the others",
+			skill:      "mocked-skill-00001",
+			agents:     []string{"cursor"},
+			configured: []string{"claude", "cursor"},
+			want:       []string{"claude"},
+		},
+		{
+			name:       "toggling back on to every configured agent removes the table",
+			skill:      "mocked-skill-00001",
+			setFirst:   []string{"claude"},
+			agents:     []string{"cursor"},
+			configured: []string{"claude", "cursor"},
+			want:       nil,
+		},
+		{
+			name:       "several agents toggle in one call",
+			skill:      "mocked-skill-00001",
+			agents:     []string{"claude", "cursor"},
+			configured: []string{"claude", "cursor", "codex"},
+			want:       []string{"codex"},
+		},
+		{
+			name:       "toggling on adds an agent to the list",
+			skill:      "mocked-skill-00001",
+			setFirst:   []string{"claude"},
+			agents:     []string{"cursor"},
+			configured: []string{"claude", "cursor", "codex"},
+			want:       []string{"claude", "cursor"},
+		},
+		{
+			name:       "names not configured here are kept",
+			skill:      "mocked-skill-00001",
+			setFirst:   []string{"codex"},
+			agents:     []string{"claude"},
+			configured: []string{"claude"},
+			want:       []string{"codex", "claude"},
+		},
+		{
+			name:       "removing the last compatible agent is refused",
+			skill:      "mocked-skill-00001",
+			agents:     []string{"claude"},
+			configured: []string{"claude"},
+			wantErr:    "compatible list is empty",
+		},
+		{
+			name:       "unknown skill is refused",
+			skill:      "no-such-skill",
+			agents:     []string{"claude"},
+			configured: []string{"claude", "cursor"},
+			wantErr:    "no skill in vault",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := fixtureVault(t)
+			if tt.setFirst != nil {
+				setCompatFor(t, v, tt.skill, tt.setFirst...)
+			}
+			before := tomlText(t, v)
+			got, err := ToggleCompat(v, tt.skill, tt.agents, tt.configured)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("ToggleCompat() error = %v, want containing %q", err, tt.wantErr)
+				}
+				if tomlText(t, v) != before {
+					t.Error("a refused toggle changed sapato.toml")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ToggleCompat() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ToggleCompat() = %v, want %v", got, tt.want)
+			}
+			if stored := v.CompatAgents(tt.skill); !reflect.DeepEqual(stored, tt.want) {
+				t.Errorf("stored list = %v, want %v", stored, tt.want)
+			}
+		})
+	}
+}
+
 func TestClassifyIncompatible(t *testing.T) {
 	tests := []struct {
 		name string

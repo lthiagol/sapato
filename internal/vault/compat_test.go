@@ -352,3 +352,30 @@ func TestPlanCompat(t *testing.T) {
 		})
 	}
 }
+
+func TestSkillsCarryCompatList(t *testing.T) {
+	dir := newVault(t, "format = 1\n\n[skills.code-review]\ncompatible = [\"claude\"]\n")
+	for _, name := range []string{"code-review", "other"} {
+		skill := filepath.Join(dir, "skills", name)
+		if err := os.MkdirAll(skill, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(skill, "SKILL.md"), "---\nname: "+name+"\ndescription: d\n---\n")
+	}
+	v, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills, err := v.Skills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, s := range skills {
+		got[s.Name] = s.Compat
+	}
+	want := map[string][]string{"code-review": {"claude"}, "other": nil}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Skills() compat = %v, want %v", got, want)
+	}
+}

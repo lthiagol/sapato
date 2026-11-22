@@ -128,6 +128,7 @@ func (v *Vault) Skills() ([]Skill, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.Compat = v.CompatAgents(s.Name)
 		skills = append(skills, s)
 	}
 	slices.SortFunc(skills, func(a, b Skill) int { return strings.Compare(a.Name, b.Name) })

@@ -44,6 +44,51 @@ func SetCompat(v *vault.Vault, skill string, agents []string, opts Options) erro
 	return nil
 }
 
+// ToggleCompat flips the compatibility of the vault skill skill with each agent in
+// agents: an agent it works with stops working with it, and the reverse. configured
+// are the agents set up here. A skill with no list starts from all of them. When the
+// result covers exactly the configured agents, the table is removed. It returns the
+// new list, nil for every agent. A refused change is an error, as in SetCompat.
+func ToggleCompat(v *vault.Vault, skill string, agents, configured []string) ([]string, error) {
+	current, err := Compat(v, skill)
+	if err != nil {
+		return nil, err
+	}
+	list := slices.Clone(current)
+	if list == nil {
+		list = slices.Clone(configured)
+	}
+	for _, a := range agents {
+		if i := slices.Index(list, a); i >= 0 {
+			list = slices.Delete(list, i, i+1)
+		} else {
+			list = append(list, a)
+		}
+	}
+	if sameAgents(list, configured) {
+		list = nil
+	}
+	if err := SetCompat(v, skill, list, Options{}); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// sameAgents reports whether a and b name the same agents.
+func sameAgents(a, b []string) bool {
+	for _, x := range a {
+		if !slices.Contains(b, x) {
+			return false
+		}
+	}
+	for _, x := range b {
+		if !slices.Contains(a, x) {
+			return false
+		}
+	}
+	return true
+}
+
 // checkInVault reports an error unless skill is a skill folder in the vault.
 func checkInVault(v *vault.Vault, skill string) error {
 	skills, err := v.Skills()

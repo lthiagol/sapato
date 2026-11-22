@@ -101,6 +101,7 @@ func TestStatusColorUsesRoles(t *testing.T) {
 		{ops.Orphaned, th.Purple},
 		{ops.Unmanaged, th.Cyan},
 		{ops.Missing, th.Pink},
+		{ops.Incompatible, th.Overlay},
 	}
 	for _, tt := range tests {
 		if got := th.StatusColor(tt.state); got != tt.want {

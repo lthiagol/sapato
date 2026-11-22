@@ -10,7 +10,7 @@ type namedSet struct {
 	set  Set
 }
 
-// Set is one glyph set. Status has a glyph for each of the eight states. Info
+// Set is one glyph set. Status has a glyph for each of the nine states. Info
 // marks an info notification and Exec an executable file. Branch, Last and Pipe draw
 // the file tree: a branch, the last branch of a folder, and the line that runs down
 // past a branch. Sets carry no separators.
@@ -35,6 +35,7 @@ var sets = []namedSet{
 			ops.Orphaned:     "\uf127",
 			ops.Unmanaged:    "\uf059",
 			ops.Missing:      "\uf071",
+			ops.Incompatible: "\uf05e",
 		},
 		Marker: "\uf054",
 		Mark:   "\uf14a",
@@ -55,6 +56,7 @@ var sets = []namedSet{
 			ops.Orphaned:     "∅",
 			ops.Unmanaged:    "◆",
 			ops.Missing:      "!",
+			ops.Incompatible: "⊘",
 		},
 		Marker: "▶",
 		Mark:   "■",
@@ -75,6 +77,7 @@ var sets = []namedSet{
 			ops.Orphaned:     "orp",
 			ops.Unmanaged:    "?",
 			ops.Missing:      "!",
+			ops.Incompatible: "-",
 		},
 		Marker: ">",
 		Mark:   "*",

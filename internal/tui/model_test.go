@@ -32,6 +32,8 @@ type fakeBackend struct {
 	calls     []string
 	// lastAgents are the agent IDs of the last install, uninstall, update or adopt.
 	lastAgents []string
+	// lastOpts are the options of the last install, uninstall or update.
+	lastOpts ops.Options
 	// vaultSkills, when set, is what Skills returns. Otherwise every skill in rows
 	// is in the vault, except one with an orphaned row, and an invalid row makes
 	// its skill invalid.
@@ -42,6 +44,9 @@ type fakeBackend struct {
 	entries map[string]target.LockEntry
 	// filesErr and lockErr are what Files and LockEntry fail with.
 	filesErr, lockErr error
+	// compatList is what ToggleCompat returns, and compatErr its error.
+	compatList []string
+	compatErr  error
 }
 
 func (f *fakeBackend) Status(_ []config.Agent) ([]ops.Row, error) {
@@ -75,6 +80,16 @@ func (f *fakeBackend) Skills() ([]vault.Skill, error) {
 	return skills, nil
 }
 
+// incompatible reports whether the fake's row for skill in agent is incompatible.
+func (f *fakeBackend) incompatible(skill, agent string) bool {
+	for _, r := range f.rows {
+		if r.Skill == skill && r.Agent == agent {
+			return !r.Compatible
+		}
+	}
+	return false
+}
+
 // refusal is what ops returns for a refusal that --force overrides: msg is its CLI
 // text and reasons are what the prompt shows.
 func refusal(msg string, reasons ...string) error {
@@ -97,6 +112,7 @@ func (f *fakeBackend) state(skill, agent string) ops.State {
 func (f *fakeBackend) run(op string, agents []config.Agent, skills []string, opts ops.Options) ([]ops.Action, error) {
 	f.calls = append(f.calls, fmt.Sprintf("%s %s dry=%t force=%t", op, skills[0], opts.DryRun, opts.Force))
 	f.lastAgents = idList(agents)
+	f.lastOpts = opts
 	if err := f.opErr[op]; err != nil {
 		return nil, err
 	}
@@ -105,6 +121,10 @@ func (f *fakeBackend) run(op string, agents []config.Agent, skills []string, opt
 	}
 	var acts []ops.Action
 	for _, a := range agents {
+		if opts.SkipIncompatible && f.incompatible(skills[0], a.ID) {
+			acts = append(acts, ops.Action{Op: ops.OpSkip, Skill: skills[0], Agent: a.ID, Reason: "incompatible"})
+			continue
+		}
 		state := f.state(skills[0], a.ID)
 		if !opts.Force {
 			switch {
@@ -147,6 +167,11 @@ func (f *fakeBackend) Adopt(agent config.Agent, skill string, opts ops.Options) 
 	return ops.Action{Op: ops.OpAdopt, Skill: skill, Agent: agent.ID, Path: filepath.Join(agent.Path, skill)}, nil
 }
 
+func (f *fakeBackend) ToggleCompat(skill string, agents, _ []string) ([]string, error) {
+	f.calls = append(f.calls, fmt.Sprintf("compat %s %s", skill, strings.Join(agents, ",")))
+	return f.compatList, f.compatErr
+}
+
 func (f *fakeBackend) Diff(_ config.Agent, skill string) ([]ops.FileChange, error) {
 	f.calls = append(f.calls, "diff "+skill)
 	return f.changes, f.diffErr
@@ -180,7 +205,12 @@ func idList(agents []config.Agent) []string {
 	return ids
 }
 
+// row is a status row of a compatible pair. incompatRow is one of an incompatible pair.
 func row(skill, agent string, st ops.State) ops.Row {
+	return ops.Row{Skill: skill, Agent: agent, Status: st, Compatible: true}
+}
+
+func incompatRow(skill, agent string, st ops.State) ops.Row {
 	return ops.Row{Skill: skill, Agent: agent, Status: st}
 }
 
@@ -601,14 +631,19 @@ func TestHelpTogglesAndLegendCoversAllStates(t *testing.T) {
 func TestEveryStatusHasAGlyphInTheMatrix(t *testing.T) {
 	var rows []ops.Row
 	for i, st := range states {
-		rows = append(rows, row(fmt.Sprintf("skill-%d", i), "claude", st.state))
+		name := fmt.Sprintf("skill-%d", i)
+		if st.state == ops.Incompatible {
+			rows = append(rows, incompatRow(name, "claude", st.state))
+			continue
+		}
+		rows = append(rows, row(name, "claude", st.state))
 	}
 	th, set := testLook(t)
 	m := testModel(&fakeBackend{rows: rows}, []config.Agent{claude}, th, set, true)
 	m, _ = settle(t, m, m.Init())
 	view := m.View()
-	if len(states) != 8 {
-		t.Fatalf("states has %d entries, want the 8 of spec §6", len(states))
+	if len(states) != 9 {
+		t.Fatalf("states has %d entries, want the 9 of spec §6 and §9.5", len(states))
 	}
 	for _, st := range states {
 		if glyph := set.Status[st.state]; !strings.Contains(view, glyph) {

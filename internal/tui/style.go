@@ -13,7 +13,7 @@ type stateInfo struct {
 	desc  string
 }
 
-// states lists the eight statuses of spec §6, in spec order.
+// states lists the nine statuses of spec §6 and §9.5, in spec order.
 var states = []stateInfo{
 	{ops.NotInstalled, "in the vault, not in this agent"},
 	{ops.Invalid, "in the vault but invalid; never installed"},
@@ -23,6 +23,7 @@ var states = []stateInfo{
 	{ops.Orphaned, "installed; no longer in the vault"},
 	{ops.Unmanaged, "in this agent, not managed by sapato"},
 	{ops.Missing, "in the lock, but its folder is gone"},
+	{ops.Incompatible, "in the vault, not compatible with this agent"},
 }
 
 // styles holds every Lip Gloss style the UI uses, colored from the roles of the
