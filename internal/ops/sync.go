@@ -66,7 +66,7 @@ func Sync(v *vault.Vault, agents []config.Agent, opts SyncOptions) ([]Action, er
 		var toInstall, toUpdate, toPrune []string
 		for _, name := range valid {
 			switch states[a.ID][name] {
-			case NotInstalled, Missing, Unmanaged:
+			case NotInstalled, Missing, Unmanaged, Incompatible:
 				toInstall = append(toInstall, name)
 			case Outdated, Modified:
 				toUpdate = append(toUpdate, name)
@@ -89,7 +89,10 @@ func Sync(v *vault.Vault, agents []config.Agent, opts SyncOptions) ([]Action, er
 			steps = append(steps, func(o Options) ([]Action, error) { return Uninstall(v, one, toPrune, o) })
 		}
 		if len(toInstall) > 0 {
-			steps = append(steps, func(o Options) ([]Action, error) { return Install(v, one, toInstall, o) })
+			steps = append(steps, func(o Options) ([]Action, error) {
+				o.SkipIncompatible = true
+				return Install(v, one, toInstall, o)
+			})
 		}
 		if len(toUpdate) > 0 {
 			steps = append(steps, func(o Options) ([]Action, error) { return Update(v, one, toUpdate, o) })

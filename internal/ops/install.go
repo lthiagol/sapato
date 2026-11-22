@@ -38,6 +38,9 @@ type Options struct {
 	Force bool
 	// DryRun returns the plan and changes nothing.
 	DryRun bool
+	// SkipIncompatible reports an incompatible pair as a skip instead of refusing
+	// it. Install needs it for --all and for sync; a glob skill name always skips.
+	SkipIncompatible bool
 }
 
 // Action is one planned or applied change to an agent's skills directory.
@@ -51,9 +54,11 @@ type Action struct {
 
 // Install copies the vault skills matched by skills into each agent (spec §7,
 // §8). A skill named literally must be valid. A glob that matches an invalid
-// skill skips it, and the skip is returned as an OpSkip action. A folder that
-// is unmanaged or modified is refused unless opts.Force is set. When a check
-// fails nothing is changed.
+// skill skips it, and the skip is returned as an OpSkip action. A pair whose
+// agent the skill is not compatible with is refused unless opts.Force is set,
+// or skipped when opts.SkipIncompatible is set or the skill is matched by a
+// glob. A folder that is unmanaged or modified is refused unless opts.Force is
+// set. When a check fails nothing is changed.
 func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Options) ([]Action, error) {
 	if err := checkArgs(agents, skills); err != nil {
 		return nil, fmt.Errorf("install: %w", err)
@@ -89,7 +94,7 @@ func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Option
 	}
 	dirs := agentDirs(agents)
 	var actions []Action
-	var refused, reasons []string
+	var refused, incompatible, reasons []string
 	for _, r := range rows {
 		s, ok := byName[r.Skill]
 		if !ok {
@@ -98,6 +103,17 @@ func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Option
 		if !s.Valid {
 			actions = append(actions, Action{Op: OpSkip, Skill: r.Skill, Agent: r.Agent, Reason: "invalid"})
 			continue
+		}
+		if !r.Compatible {
+			if opts.SkipIncompatible || !literal[r.Skill] {
+				actions = append(actions, Action{Op: OpSkip, Skill: r.Skill, Agent: r.Agent, Reason: "incompatible"})
+				continue
+			}
+			if !opts.Force {
+				incompatible = append(incompatible, fmt.Sprintf("%s in %s: incompatible", r.Skill, r.Agent))
+				reasons = addReason(reasons, fmt.Sprintf("%s is not compatible with %s", r.Agent, r.Skill))
+				continue
+			}
 		}
 		if (r.Status == Unmanaged || r.Status == Modified) && !opts.Force {
 			refused = append(refused, fmt.Sprintf("%s in %s: %s", r.Skill, r.Agent, r.Status))
@@ -110,8 +126,15 @@ func Install(v *vault.Vault, agents []config.Agent, skills []string, opts Option
 		}
 		actions = append(actions, Action{Op: OpInstall, Skill: r.Skill, Agent: r.Agent, Path: filepath.Join(dirs[r.Agent], r.Skill)})
 	}
+	var msgs []string
 	if len(refused) > 0 {
-		return nil, fmt.Errorf("install: %w", forceRefusal(fmt.Sprintf("refusing to overwrite %s (use --force)", strings.Join(refused, "; ")), reasons...))
+		msgs = append(msgs, "refusing to overwrite "+strings.Join(refused, "; "))
+	}
+	if len(incompatible) > 0 {
+		msgs = append(msgs, "refusing to install "+strings.Join(incompatible, "; "))
+	}
+	if len(msgs) > 0 {
+		return nil, fmt.Errorf("install: %w", forceRefusal(strings.Join(msgs, "; ")+" (use --force)", reasons...))
 	}
 	if opts.DryRun {
 		return actions, nil

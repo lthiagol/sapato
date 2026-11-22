@@ -10,9 +10,9 @@ import (
 	"sapato/internal/vault"
 )
 
-// Remove deletes the vault skill called skill (spec §7). A skill installed in
-// any of agents is refused unless opts.Force is set; with Force its installed
-// copies become orphaned. When a check fails nothing is changed.
+// Remove deletes the vault skill called skill and its compatible table (spec §7). A
+// skill installed in any of agents is refused unless opts.Force is set; with Force
+// its installed copies become orphaned. When a check fails nothing is changed.
 func Remove(v *vault.Vault, agents []config.Agent, skill string, opts Options) (Action, error) {
 	skills, err := v.Skills()
 	if err != nil {
@@ -39,10 +39,17 @@ func Remove(v *vault.Vault, agents []config.Agent, skill string, opts Options) (
 	}
 
 	action := Action{Op: OpRemove, Skill: skill, Path: skills[i].Dir}
+	edit, err := v.PlanCompat(map[string][]string{skill: nil})
+	if err != nil {
+		return Action{}, fmt.Errorf("remove %s: %w", skill, err)
+	}
 	if opts.DryRun {
 		return action, nil
 	}
 	if err := os.RemoveAll(skills[i].Dir); err != nil {
+		return Action{}, fmt.Errorf("remove %s: %w", skill, err)
+	}
+	if err := edit.Write(); err != nil {
 		return Action{}, fmt.Errorf("remove %s: %w", skill, err)
 	}
 	return action, nil

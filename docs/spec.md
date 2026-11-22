@@ -81,7 +81,7 @@ compatible = ["claude"]         # agent names this skill works with; absent = co
 
 - A skill is compatible with every agent unless `sapato.toml` has `[skills.<name>] compatible = [...]`. An empty list is rejected on load (use the `remove` path instead: no entry = all).
 - Names in `compatible` match the agent name pattern (§2). They need not be configured on this machine (the vault is portable); `doctor` reports unknown ones as info.
-- sapato writes this table itself (`compat`, `remove`, imports with a manifest, the NEW wizard). A write edits only the lines of that skill's `[skills.<name>]` table: the old table (header through the line before the next table header or EOF) is removed, and the new one, if any, is appended at the end of the file. Every other byte of the file (comments, `[assignments]`, other skills) is kept. Writes are atomic (temp file + rename). Unknown keys inside `[skills.<name>]` are rejected on load.
+- sapato writes this table itself (`compat`, `remove`, imports with a manifest, the NEW wizard). A write edits only the lines of that skill's `[skills.<name>]` table: the old table (its header through its last key/value line; blank and comment lines after that, which may belong to the next table, are kept) is removed, and the new one, if any, is appended at the end of the file. Every other byte of the file (comments, `[assignments]`, other skills) is kept. Writes are atomic (temp file + rename). Unknown keys inside `[skills.<name>]` are rejected on load.
 - `remove` deletes the skill's table. Removing the last compatible agent is not possible: setting compatibility to all agents deletes the table.
 
 ### Validation rules (a skill failing any rule is *invalid*)
@@ -187,7 +187,7 @@ Exit codes: 0 ok, 1 error, 2 usage error. Errors go to stderr.
 
 The source kind is decided in this order:
 
-1. Ends in `.tar.gz`/`.tgz` → tarball (§11). If its manifest has `compatible` for a skill, that is written to the vault's `[skills.<name>]` table on import (replacing any existing one under `--force`).
+1. Ends in `.tar.gz`/`.tgz` → tarball (§11). If its manifest has `compatible` for a skill, that is written to the vault's `[skills.<name>]` table on import. A manifest describes the full state: a skill it imports without a `compatible` entry has any existing table removed. Without a manifest, tables are left alone.
 2. `https://` URL whose path ends in `.md` → **raw file**: HTTP GET (15s timeout, max 1 MiB body, status must be 200), treated as a one-file skill folder holding `SKILL.md`. A GitHub blob URL `https://github.com/<o>/<r>/blob/<ref>/<path>` is fetched from `https://raw.githubusercontent.com/<o>/<r>/<ref>/<path>`. Name hint (for `--fix`): the URL path's parent directory name.
 3. Other git URL (`https://`, `git@`, `*.git`) → shallow clone (as before).
 4. Local path to a regular file → **local file**, treated like a raw file. Name hint: its parent directory name.

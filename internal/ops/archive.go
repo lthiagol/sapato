@@ -25,11 +25,12 @@ const (
 	maxArchiveEntries = 10000
 )
 
-// manifest is the sapato-export.json entry of a tarball: the skills it holds and
-// their content hashes.
+// manifest is the sapato-export.json entry of a tarball: the skills it holds, their
+// content hashes, and the compatible lists of those that have one (spec §11).
 type manifest struct {
-	Format int               `json:"format"`
-	Skills map[string]string `json:"skills"`
+	Format     int                 `json:"format"`
+	Skills     map[string]string   `json:"skills"`
+	Compatible map[string][]string `json:"compatible,omitempty"`
 }
 
 // isArchive reports whether src names a gzip tarball. A tarball is always a local file.
@@ -71,6 +72,14 @@ func importArchive(v *vault.Vault, src string, opts ImportOptions) ([]Action, er
 		}
 	}
 
+	var changes map[string][]string
+	if m != nil {
+		changes = make(map[string][]string, len(skills))
+		for _, s := range skills {
+			changes[s.Name] = m.Compatible[s.Name]
+		}
+	}
+
 	var copies []skillCopy
 	var actions []Action
 	var present []string
@@ -92,7 +101,11 @@ func importArchive(v *vault.Vault, src string, opts ImportOptions) ([]Action, er
 	if opts.DryRun {
 		return actions, nil
 	}
-	if err := placeSkills(copies, nil); err != nil {
+	var commit func() error
+	if changes != nil {
+		commit = func() error { return v.EditCompat(changes) }
+	}
+	if err := placeSkills(copies, commit); err != nil {
 		return nil, err
 	}
 	return actions, nil
@@ -261,7 +274,8 @@ func archiveSkills(dir string) ([]vault.Skill, error) {
 }
 
 // checkManifest checks, when the archive has a manifest, that it lists exactly the
-// skills in the archive with their hashes.
+// skills in the archive with their hashes, and that each compatible list belongs to
+// one of them and is valid.
 func checkManifest(m *manifest, skills []vault.Skill) error {
 	if m == nil {
 		return nil
@@ -275,6 +289,14 @@ func checkManifest(m *manifest, skills []vault.Skill) error {
 	for _, s := range skills {
 		if hash, ok := m.Skills[s.Name]; !ok || hash != s.Hash {
 			return fmt.Errorf("%s does not match skill %s", manifestName, s.Name)
+		}
+	}
+	for name, list := range m.Compatible {
+		if _, ok := m.Skills[name]; !ok {
+			return fmt.Errorf("%s lists compatible agents for %s, which is not in the archive", manifestName, name)
+		}
+		if err := vault.ValidateCompat(list); err != nil {
+			return fmt.Errorf("%s: skill %s: %w", manifestName, name, err)
 		}
 	}
 	return nil

@@ -31,7 +31,7 @@ func Export(v *vault.Vault, skills []string, w io.Writer) ([]Action, error) {
 	}
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
-	if err := writeArchive(tw, picked); err != nil {
+	if err := writeArchive(tw, v, picked); err != nil {
 		return nil, fmt.Errorf("export: %w", err)
 	}
 	if err := tw.Close(); err != nil {
@@ -121,11 +121,18 @@ func pickExport(v *vault.Vault, skills []string) ([]vault.Skill, []Action, error
 	return picked, skips, nil
 }
 
-// writeArchive writes the manifest, then each skill folder in the order given.
-func writeArchive(tw *tar.Writer, skills []vault.Skill) error {
+// writeArchive writes the manifest, then each skill folder in the order given. The
+// manifest lists the compatible lists of the skills in v that have one.
+func writeArchive(tw *tar.Writer, v *vault.Vault, skills []vault.Skill) error {
 	m := manifest{Format: manifestFormat, Skills: make(map[string]string, len(skills))}
 	for _, s := range skills {
 		m.Skills[s.Name] = s.Hash
+		if list := v.CompatAgents(s.Name); list != nil {
+			if m.Compatible == nil {
+				m.Compatible = make(map[string][]string)
+			}
+			m.Compatible[s.Name] = list
+		}
 	}
 	data, err := json.Marshal(m)
 	if err != nil {

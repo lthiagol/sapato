@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"sapato/internal/config"
+	"sapato/internal/vault"
 )
 
 func TestRemove(t *testing.T) {
@@ -122,5 +123,38 @@ func TestRemoveIgnoresUnmanagedCopies(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(agents[0].Path, "mocked-skill-00006", "SKILL.md")); err != nil {
 		t.Errorf("unmanaged copy was touched: %v", err)
+	}
+}
+
+func TestRemoveKeepsSkillWhenCompatEditFails(t *testing.T) {
+	// A table written in a form the compat edit cannot remove makes the edit fail.
+	// Remove must notice before it deletes the skill folder.
+	tests := []struct {
+		name  string
+		table string
+	}{
+		{"dotted key", "[skills]\nmocked-skill-00006.compatible = [\"claude\"]\n"},
+		{"inline table", "[skills]\nmocked-skill-00006 = { compatible = [\"claude\"] }\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := fixtureVault(t)
+			agents := []config.Agent{fixtureAgent(t, "claude")}
+			manifest := filepath.Join(v.Path, "sapato.toml")
+			writeTestFile(t, manifest, "format = 1\n\n[assignments]\nclaude = [\"mocked-skill-0000[1-3]\"]\nagents = [\"*\"]\n\n"+tt.table)
+			v, err := vault.Open(v.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			vaultBefore := snapshot(t, v.Path)
+
+			_, err = Remove(v, agents, "mocked-skill-00006", Options{})
+			if err == nil || !strings.Contains(err.Error(), "result does not match the change") {
+				t.Fatalf("Remove() error = %v, want result mismatch", err)
+			}
+			if after := snapshot(t, v.Path); !reflect.DeepEqual(after, vaultBefore) {
+				t.Error("vault changed on a failed remove")
+			}
+		})
 	}
 }

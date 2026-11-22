@@ -67,6 +67,9 @@ const (
 // agentNamePattern is the form of an agent name in [agents] (spec §2).
 var agentNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
+// ValidAgentName reports whether name has the form of an agent name (spec §2).
+func ValidAgentName(name string) bool { return agentNamePattern.MatchString(name) }
+
 // themeNames lists the themes of spec §9.5 in UI order. internal/tui/theme holds the same names.
 var themeNames = []string{
 	"catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",

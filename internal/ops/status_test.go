@@ -205,23 +205,23 @@ func TestStatusFilter(t *testing.T) {
 			name:  "glob selects skills and keeps agent order",
 			globs: []string{"mocked-skill-0000[12]"},
 			want: []Row{
-				{Skill: "mocked-skill-00001", Agent: "claude", Status: Synced},
-				{Skill: "mocked-skill-00001", Agent: "agents", Status: Synced},
-				{Skill: "mocked-skill-00002", Agent: "claude", Status: Outdated},
-				{Skill: "mocked-skill-00002", Agent: "agents", Status: NotInstalled},
+				{Skill: "mocked-skill-00001", Agent: "claude", Status: Synced, Compatible: true},
+				{Skill: "mocked-skill-00001", Agent: "agents", Status: Synced, Compatible: true},
+				{Skill: "mocked-skill-00002", Agent: "claude", Status: Outdated, Compatible: true},
+				{Skill: "mocked-skill-00002", Agent: "agents", Status: NotInstalled, Compatible: true},
 			},
 		},
 		{
 			name:  "glob can select an unmanaged skill",
 			globs: []string{"hand-*"},
-			want:  []Row{{Skill: "hand-made-skill", Agent: "claude", Status: Unmanaged}},
+			want:  []Row{{Skill: "hand-made-skill", Agent: "claude", Status: Unmanaged, Compatible: true}},
 		},
 		{
 			name:  "several globs are unioned",
 			globs: []string{"hand-*", "mocked-skill-00098"},
 			want: []Row{
-				{Skill: "hand-made-skill", Agent: "claude", Status: Unmanaged},
-				{Skill: "mocked-skill-00098", Agent: "claude", Status: Missing},
+				{Skill: "hand-made-skill", Agent: "claude", Status: Unmanaged, Compatible: true},
+				{Skill: "mocked-skill-00098", Agent: "claude", Status: Missing, Compatible: true},
 			},
 		},
 		{

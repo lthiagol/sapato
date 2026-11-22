@@ -25,13 +25,15 @@ const (
 	Orphaned     State = "orphaned"
 	Unmanaged    State = "unmanaged"
 	Missing      State = "missing"
+	Incompatible State = "incompatible"
 )
 
 // Row is the status of one skill in one agent.
 type Row struct {
-	Skill  string `json:"skill"`
-	Agent  string `json:"agent"`
-	Status State  `json:"status"`
+	Skill      string `json:"skill"`
+	Agent      string `json:"agent"`
+	Status     State  `json:"status"`
+	Compatible bool   `json:"compatible"`
 }
 
 // Filter narrows Status. Skills are path.Match globs; a skill matches when any
@@ -50,6 +52,8 @@ type presence struct {
 	lockHash   string
 	inTarget   bool
 	targetHash string
+	// incompatible is set when the skill is not compatible with the agent (spec §3).
+	incompatible bool
 }
 
 // classify applies the precedence of spec §6. A target that differs from its
@@ -58,6 +62,8 @@ func classify(p presence) State {
 	switch {
 	case !p.inLock && p.inTarget:
 		return Unmanaged
+	case !p.inLock && p.inVault && p.incompatible:
+		return Incompatible
 	case !p.inLock && p.inVault && !p.valid:
 		return Invalid
 	case !p.inLock:
@@ -141,13 +147,15 @@ func Status(v *vault.Vault, agents []config.Agent, f Filter) ([]Row, error) {
 			if !p.inVault && !p.inLock && !p.inTarget {
 				continue
 			}
+			compatible := v.Compatible(name, vw.agent.ID)
+			p.incompatible = !compatible
 			if p.inTarget {
 				p.targetHash, err = hashdir.Hash(filepath.Join(vw.agent.Path, name))
 				if err != nil {
 					return nil, fmt.Errorf("status: %w", err)
 				}
 			}
-			rows = append(rows, Row{Skill: name, Agent: vw.agent.ID, Status: classify(p)})
+			rows = append(rows, Row{Skill: name, Agent: vw.agent.ID, Status: classify(p), Compatible: compatible})
 		}
 	}
 	return rows, nil

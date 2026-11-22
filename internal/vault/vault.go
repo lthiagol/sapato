@@ -23,11 +23,15 @@ const (
 type Vault struct {
 	Path        string
 	Assignments map[string][]string
+	// compat holds the compatible list of each skill that has a [skills.<name>]
+	// table (spec §3). A skill without one is compatible with every agent.
+	compat map[string][]string
 }
 
 type manifest struct {
-	Format      *int                `toml:"format"`
-	Assignments map[string][]string `toml:"assignments"`
+	Format      *int                      `toml:"format"`
+	Assignments map[string][]string       `toml:"assignments"`
+	Skills      map[string]map[string]any `toml:"skills"`
 }
 
 // Open reads and checks the vault manifest at path.
@@ -36,17 +40,31 @@ func Open(path string) (*Vault, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open vault %s: %w", path, err)
 	}
+	assignments, compat, err := parseManifest(path, data)
+	if err != nil {
+		return nil, err
+	}
+	return &Vault{Path: path, Assignments: assignments, compat: compat}, nil
+}
+
+// parseManifest checks the contents data of the manifest of the vault at path and
+// returns its assignments and compatible lists.
+func parseManifest(path string, data []byte) (map[string][]string, map[string][]string, error) {
 	var m manifest
 	if err := toml.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", filepath.Join(path, manifestName), err)
+		return nil, nil, fmt.Errorf("parse %s: %w", filepath.Join(path, manifestName), err)
 	}
 	if m.Format == nil {
-		return nil, fmt.Errorf("vault %s: format is required", path)
+		return nil, nil, fmt.Errorf("vault %s: format is required", path)
 	}
 	if *m.Format != formatV1 {
-		return nil, fmt.Errorf("vault %s: unsupported format %d", path, *m.Format)
+		return nil, nil, fmt.Errorf("vault %s: unsupported format %d", path, *m.Format)
 	}
-	return &Vault{Path: path, Assignments: m.Assignments}, nil
+	compat, err := parseCompat(path, m.Skills)
+	if err != nil {
+		return nil, nil, err
+	}
+	return m.Assignments, compat, nil
 }
 
 // Exists reports whether a vault manifest is present at path.

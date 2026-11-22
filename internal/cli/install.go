@@ -63,7 +63,11 @@ func newInstallCmd(opts *globalOpts) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			actions, err := ops.Install(v, selected, args, ops.Options{Force: force, DryRun: opts.dryRun})
+			actions, err := ops.Install(v, selected, args, ops.Options{
+				Force:            force,
+				DryRun:           opts.dryRun,
+				SkipIncompatible: agents.all,
+			})
 			if err != nil {
 				return err
 			}

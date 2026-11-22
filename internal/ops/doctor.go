@@ -31,6 +31,9 @@ const (
 	FindingMissing      FindingKind = "missing"
 	FindingOrphaned     FindingKind = "orphaned"
 	FindingNotHere      FindingKind = "not-configured-here"
+	FindingIncompatible FindingKind = "incompatible"
+	FindingCompatHere   FindingKind = "compat-not-configured-here"
+	FindingIncompatRead FindingKind = "incompatible-read"
 )
 
 // Finding is one problem Doctor reports.
@@ -44,10 +47,11 @@ type Finding struct {
 
 // Doctor checks the vault and the agents' target dirs and reports what is wrong
 // (spec §7). Invalid vault skills and corrupt locks are errors. Modified,
-// missing and orphaned entries, and skills visible to one agent from two dirs,
-// are warnings. Assignments that name an agent not configured here are info. A
-// corrupt lock is reported and its agent is not checked further. Doctor changes
-// nothing.
+// missing and orphaned entries, managed copies in an agent the skill is not
+// compatible with, and skills visible to one agent from two dirs, are warnings.
+// Assignments and compatible names that are not configured here, and skills an
+// agent reads that it is not compatible with, are info. A corrupt lock is
+// reported and its agent is not checked further. Doctor changes nothing.
 func Doctor(v *vault.Vault, agents []config.Agent) ([]Finding, error) {
 	skills, err := v.Skills()
 	if err != nil {
@@ -84,17 +88,24 @@ func Doctor(v *vault.Vault, agents []config.Agent) ([]Finding, error) {
 		return nil, fmt.Errorf("doctor: %w", err)
 	}
 	for _, r := range rows {
-		kind, msg := entryFinding(r)
-		if kind == "" {
-			continue
+		if kind, msg := entryFinding(r); kind != "" {
+			findings = append(findings, Finding{
+				Severity: SeverityWarn,
+				Kind:     kind,
+				Agent:    r.Agent,
+				Skill:    r.Skill,
+				Message:  fmt.Sprintf("%s in %s: %s", r.Skill, r.Agent, msg),
+			})
 		}
-		findings = append(findings, Finding{
-			Severity: SeverityWarn,
-			Kind:     kind,
-			Agent:    r.Agent,
-			Skill:    r.Skill,
-			Message:  fmt.Sprintf("%s in %s: %s", r.Skill, r.Agent, msg),
-		})
+		if !r.Compatible && installedState(r.Status) {
+			findings = append(findings, Finding{
+				Severity: SeverityWarn,
+				Kind:     FindingIncompatible,
+				Agent:    r.Agent,
+				Skill:    r.Skill,
+				Message:  fmt.Sprintf("%s in %s: installed in an agent the skill is not compatible with", r.Skill, r.Agent),
+			})
+		}
 	}
 
 	for _, id := range unconfigured(v.Assignments, agents) {
@@ -106,11 +117,89 @@ func Doctor(v *vault.Vault, agents []config.Agent) ([]Finding, error) {
 		})
 	}
 
+	findings = append(findings, compatFindings(v, skills, agents)...)
+
+	reads, err := incompatReadFindings(v, agents)
+	if err != nil {
+		return nil, fmt.Errorf("doctor: %w", err)
+	}
+	findings = append(findings, reads...)
+
 	overlaps, err := overlapFindings(agents)
 	if err != nil {
 		return nil, fmt.Errorf("doctor: %w", err)
 	}
 	return append(findings, overlaps...), nil
+}
+
+// installedState reports whether a row has a managed copy in its agent.
+func installedState(s State) bool {
+	return s == Synced || s == Outdated || s == Modified || s == Orphaned
+}
+
+// compatFindings reports compatible names that are not configured here (spec §7).
+func compatFindings(v *vault.Vault, skills []vault.Skill, agents []config.Agent) []Finding {
+	var findings []Finding
+	for _, s := range skills {
+		for _, id := range v.CompatAgents(s.Name) {
+			if slices.ContainsFunc(agents, func(a config.Agent) bool { return a.ID == id }) {
+				continue
+			}
+			findings = append(findings, Finding{
+				Severity: SeverityInfo,
+				Kind:     FindingCompatHere,
+				Agent:    id,
+				Skill:    s.Name,
+				Message:  fmt.Sprintf("%s is compatible with %s, not configured here", s.Name, id),
+			})
+		}
+	}
+	return findings
+}
+
+// incompatReadFindings reports each skill in an agent's dir that another agent
+// reads through its ReadDirs (spec §2) when the skill is not compatible with
+// that reader (spec §7).
+func incompatReadFindings(v *vault.Vault, agents []config.Agent) ([]Finding, error) {
+	var findings []Finding
+	for _, reader := range agents {
+		for _, dir := range reader.ReadDirs {
+			owner, ok := agentAtDir(agents, dir)
+			if !ok || owner.ID == reader.ID {
+				continue
+			}
+			names, err := target.Scan(owner.Path)
+			if err != nil {
+				return nil, err
+			}
+			for _, name := range names {
+				if v.Compatible(name, reader.ID) {
+					continue
+				}
+				findings = append(findings, Finding{
+					Severity: SeverityInfo,
+					Kind:     FindingIncompatRead,
+					Agent:    reader.ID,
+					Skill:    name,
+					Message: fmt.Sprintf("%s in %s is read by %s, which the skill is not compatible with",
+						name, owner.ID, reader.ID),
+				})
+			}
+		}
+	}
+	return findings, nil
+}
+
+// agentAtDir returns the configured agent whose skills dir is dir, comparing
+// resolved paths.
+func agentAtDir(agents []config.Agent, dir string) (config.Agent, bool) {
+	want := resolveDir(dir)
+	for _, a := range agents {
+		if resolveDir(a.Path) == want {
+			return a, true
+		}
+	}
+	return config.Agent{}, false
 }
 
 // entryFinding returns the finding kind and text for a row that needs attention,

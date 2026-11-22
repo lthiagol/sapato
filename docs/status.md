@@ -16,6 +16,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
   - Two-row bottom bar, toast notifications and an `L` log.
   - 8 themes, with nerd, unicode and ascii icon sets.
   - On first launch with no config, it offers to create the config, then the vault.
+- **Compatibility core (task 16):** `[skills.<name>] compatible` in `sapato.toml`, the `compat` command, the `incompatible` status, install and sync skips, doctor findings, and the compat list in tarball exports and imports. The TUI does not show it yet (task 17).
 
 ## Open nits (optional, from the last review)
 
