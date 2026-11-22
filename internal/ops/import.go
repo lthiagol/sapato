@@ -3,10 +3,9 @@ package ops
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"sapato/internal/vault"
@@ -15,132 +14,190 @@ import (
 // ImportOptions are the flags of Import.
 type ImportOptions struct {
 	Options
-	// Name is the skill name. For a folder or git source it must match the
-	// frontmatter name. For a tarball it is allowed only with a single-skill archive.
+	// Name is the skill name. Without Fix it must match the frontmatter name; with
+	// Fix it renames the skill (spec §7.1). It does not apply with All.
 	Name string
 	// Subdir is the folder of the source that holds the skill. It does not apply to a tarball.
 	Subdir string
+	// All imports every skill the source holds, all or nothing.
+	All bool
+	// Fix repairs the frontmatter of an invalid skill when --fix can (spec §7.1).
+	// It does not apply to a tarball.
+	Fix bool
+	// Description is the description a repaired skill takes when it has none.
+	Description string
 }
 
-// Import copies skills from src into the vault (spec §7, §11). src is a gzip
-// tarball, a local folder, or a git URL that is shallow-cloned to a temp dir first.
-// A skill takes the name in its frontmatter. It must be valid, and a name already in
-// the vault is refused unless opts.Force is set. When a check fails nothing is changed.
+// importItem is a skill to copy into the vault.
+type importItem struct {
+	name string
+	src  string // the folder to copy
+}
+
+// Import copies skills from src into the vault (spec §7, §7.1, §11). A skill takes
+// the name in its frontmatter. It must be valid, or repairable with Fix, and a name
+// already in the vault is refused unless opts.Force is set. When a check fails
+// nothing is changed.
 func Import(v *vault.Vault, src string, opts ImportOptions) ([]Action, error) {
+	if opts.All && opts.Name != "" {
+		return nil, fmt.Errorf("import %s: --name does not apply with --all", src)
+	}
 	if isArchive(src) {
+		if opts.Fix || opts.Description != "" {
+			return nil, fmt.Errorf("import %s: --fix and --description do not apply to a tarball", src)
+		}
 		actions, err := importArchive(v, src, opts)
 		if err != nil {
 			return nil, fmt.Errorf("import %s: %w", src, err)
 		}
 		return actions, nil
 	}
-	action, err := importFolder(v, src, opts)
-	if err != nil {
-		return nil, err
-	}
-	return []Action{action}, nil
-}
 
-// importFolder copies the skill folder at src, or in a git clone of src, into the vault.
-func importFolder(v *vault.Vault, src string, opts ImportOptions) (Action, error) {
-	root, cleanup, err := fetchSource(src)
-	if err != nil {
-		return Action{}, fmt.Errorf("import %s: %w", src, err)
-	}
+	cands, cleanup, err := Discover(src, opts.Subdir)
 	defer cleanup()
-
-	dir, err := skillDir(root, opts.Subdir)
 	if err != nil {
-		return Action{}, fmt.Errorf("import %s: %w", src, err)
+		return nil, fmt.Errorf("import %s: %w", src, err)
 	}
-	name, err := vault.FrontmatterName(dir)
+	chosen, err := chooseCandidates(cands, opts.All)
 	if err != nil {
-		return Action{}, fmt.Errorf("import %s: %w", src, err)
+		return nil, fmt.Errorf("import %s: %w", src, err)
 	}
-	if opts.Name != "" && opts.Name != name {
-		return Action{}, fmt.Errorf("import %s: name %q does not match frontmatter name %q", src, opts.Name, name)
-	}
-	s, err := vault.Load(dir, name)
+
+	work, err := os.MkdirTemp("", "sapato-import-")
 	if err != nil {
-		return Action{}, fmt.Errorf("import %s: %w", src, err)
+		return nil, fmt.Errorf("import %s: %w", src, err)
 	}
-	if !s.Valid {
-		return Action{}, fmt.Errorf("import %s: invalid skill: %s", src, strings.Join(s.Problems, "; "))
-	}
+	defer func() { _ = os.RemoveAll(work) }()
 
-	dest := v.SkillDir(name)
-	present, err := pathExists(dest)
-	if err != nil {
-		return Action{}, fmt.Errorf("import %s: %w", src, err)
-	}
-	if present && !opts.Force {
-		return Action{}, fmt.Errorf("import %s: %w", src, forceRefusal(name+" is already in the vault (use --force)", "already in the vault"))
-	}
-
-	action := Action{Op: OpImport, Skill: name, Path: dest}
-	if opts.DryRun {
-		return action, nil
-	}
-	if err := placeSkillThen(dir, dest, nil); err != nil {
-		return Action{}, fmt.Errorf("import %s: %w", src, err)
-	}
-	return action, nil
-}
-
-// isGitURL reports whether src names a git repository rather than a local folder.
-func isGitURL(src string) bool {
-	return strings.HasPrefix(src, "https://") || strings.HasPrefix(src, "git@") || strings.HasSuffix(src, ".git")
-}
-
-// fetchSource returns the folder to read the skill from. A local src is resolved
-// through its symlinks. A git URL is a shallow clone in a new temp dir, and
-// cleanup removes that dir. The clone never prompts for credentials and never
-// runs an ext:: helper.
-func fetchSource(src string) (root string, cleanup func(), err error) {
-	if !isGitURL(src) {
-		resolved, err := filepath.EvalSymlinks(src)
+	var items []importItem
+	for _, c := range chosen {
+		it, err := prepareItem(c, opts, work)
 		if err != nil {
-			return "", nil, err
+			return nil, fmt.Errorf("import %s: %w", src, err)
 		}
-		return resolved, func() {}, nil
+		if slices.ContainsFunc(items, func(o importItem) bool { return o.name == it.name }) {
+			return nil, fmt.Errorf("import %s: two skills take the name %q", src, it.name)
+		}
+		items = append(items, it)
 	}
-	tmp, err := os.MkdirTemp("", "sapato-import-")
-	if err != nil {
-		return "", nil, err
+
+	var copies []skillCopy
+	var actions []Action
+	var present []string
+	for _, it := range items {
+		dest := v.SkillDir(it.name)
+		exists, err := pathExists(dest)
+		if err != nil {
+			return nil, fmt.Errorf("import %s: %w", src, err)
+		}
+		if exists {
+			present = append(present, it.name)
+		}
+		copies = append(copies, skillCopy{src: it.src, dest: dest})
+		actions = append(actions, Action{Op: OpImport, Skill: it.name, Path: dest})
 	}
-	cleanup = func() { _ = os.RemoveAll(tmp) }
-	root = filepath.Join(tmp, "repo")
-	// -c wins over the user's git config, so ext:: stays refused even where
-	// the config allows it.
-	cmd := exec.Command("git", "-c", "protocol.ext.allow=never", "clone", "--depth", "1", "--", src, root)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("git clone: %w: %s", err, strings.TrimSpace(string(out)))
+	if len(present) > 0 && !opts.Force {
+		return nil, fmt.Errorf("import %s: %w", src, presentRefusal(present))
 	}
-	return root, cleanup, nil
+	if opts.DryRun {
+		return actions, nil
+	}
+	if err := placeSkills(copies, nil); err != nil {
+		return nil, fmt.Errorf("import %s: %w", src, err)
+	}
+	return actions, nil
 }
 
-// skillDir returns the folder of the skill inside root. subdir must stay inside root.
-func skillDir(root, subdir string) (string, error) {
-	if subdir == "" {
-		return root, nil
+// candidateWhere names the folder of c in an error, or nothing when c is the root.
+func candidateWhere(c Candidate) string {
+	if c.Rel == "." {
+		return ""
 	}
-	if !filepath.IsLocal(subdir) {
-		return "", fmt.Errorf("subdir %q must be a path inside the source", subdir)
-	}
-	return filepath.Join(root, subdir), nil
+	return " for " + c.Rel
 }
 
-// pathExists reports whether anything, even a broken symlink, is at path.
-func pathExists(path string) (bool, error) {
-	_, err := os.Lstat(path)
+// presentRefusal refuses to replace the skills called names, which are in the vault.
+func presentRefusal(names []string) error {
+	if len(names) == 1 {
+		return forceRefusal(names[0]+" is already in the vault (use --force)", "already in the vault")
+	}
+	return forceRefusal("already in the vault (use --force): "+strings.Join(names, ", "), "already in the vault: "+strings.Join(names, ", "))
+}
+
+// chooseCandidates returns the candidates to import. With all, every candidate.
+// Otherwise the source must hold exactly one.
+func chooseCandidates(cands []Candidate, all bool) ([]Candidate, error) {
 	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, fs.ErrNotExist):
-		return false, nil
-	default:
-		return false, err
+	case len(cands) == 0:
+		return nil, errors.New("no skill found")
+	case all || len(cands) == 1:
+		return cands, nil
 	}
+	rels := make([]string, len(cands))
+	for i, c := range cands {
+		rels[i] = c.Rel
+	}
+	return nil, fmt.Errorf("several skills found (%s): pick one with --subdir or import all with --all", strings.Join(rels, ", "))
+}
+
+// prepareItem checks candidate c for import. A skill whose name differs from --name
+// is refused unless opts.Fix renames it, and an invalid skill is refused unless
+// opts.Fix repairs it. A repaired copy is staged in a new folder under work, and the
+// source is never changed.
+func prepareItem(c Candidate, opts ImportOptions, work string) (importItem, error) {
+	renamed := opts.Name != "" && opts.Name != c.Name
+	if c.Valid && !renamed {
+		return importItem{name: c.Name, src: c.dir}, nil
+	}
+	if !opts.Fix {
+		if c.Valid {
+			return importItem{}, fmt.Errorf("name %q does not match frontmatter name %q; --fix renames the skill", opts.Name, c.Name)
+		}
+		msg := "invalid skill: " + strings.Join(c.Problems, "; ")
+		if c.Fixable {
+			msg += "; --fix can repair it"
+		}
+		return importItem{}, errors.New(msg)
+	}
+	if !c.Valid && !c.Fixable {
+		return importItem{}, errors.New("invalid skill: " + strings.Join(c.Problems, "; "))
+	}
+
+	name := opts.Name
+	if name == "" {
+		name = c.Name
+		if !vault.ValidName(name) {
+			name = NormalizeName(c.Hint)
+		}
+	}
+	if name == "" {
+		return importItem{}, fmt.Errorf("no name can be derived%s: pass --name", candidateWhere(c))
+	}
+	data, err := os.ReadFile(filepath.Join(c.dir, skillFileName))
+	if err != nil {
+		return importItem{}, err
+	}
+	if vault.ParseContent(data).Description == "" && opts.Description == "" {
+		return importItem{}, fmt.Errorf("description is missing%s: pass --description", candidateWhere(c))
+	}
+	repaired, err := vault.Repair(data, name, opts.Description)
+	if err != nil {
+		return importItem{}, err
+	}
+	if s := vault.ParseFolder(repaired, name); !s.Valid {
+		return importItem{}, fmt.Errorf("invalid skill after --fix: %s", strings.Join(s.Problems, "; "))
+	}
+
+	stage, err := os.MkdirTemp(work, "skill-")
+	if err != nil {
+		return importItem{}, err
+	}
+	dir := filepath.Join(stage, name)
+	if err := stageSkill(c.dir, dir); err != nil {
+		return importItem{}, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, skillFileName), repaired, 0o644); err != nil {
+		return importItem{}, err
+	}
+	return importItem{name: name, src: dir}, nil
 }

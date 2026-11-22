@@ -170,3 +170,70 @@ func TestRemoveCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestImportFlags(t *testing.T) {
+	cfgPath, vaultDir, _ := manageSetup(t)
+	pack := filepath.Join(t.TempDir(), "pack")
+	writeImportFile(t, filepath.Join(pack, "one", "pack-one", "SKILL.md"), "---\nname: pack-one\ndescription: One.\n---\n")
+	writeImportFile(t, filepath.Join(pack, "two", "pack-two", "SKILL.md"), "---\nname: pack-two\ndescription: Two.\n---\n")
+	repair := filepath.Join(t.TempDir(), "repair-me")
+	writeImportFile(t, filepath.Join(repair, "SKILL.md"), "# Repair me\n")
+
+	t.Run("--name with --all is a usage error", func(t *testing.T) {
+		code, _, stderr := runCLI("--config", cfgPath, "import", pack, "--all", "--name", "x")
+		if code != 2 || !strings.Contains(stderr, "--name does not apply with --all") {
+			t.Errorf("exit = %d, stderr %q; want 2 naming --all", code, stderr)
+		}
+	})
+
+	t.Run("invalid skill names --fix", func(t *testing.T) {
+		code, _, stderr := runCLI("--config", cfgPath, "import", repair)
+		if code != 1 || !strings.Contains(stderr, "--fix can repair it") {
+			t.Errorf("exit = %d, stderr %q; want 1 suggesting --fix", code, stderr)
+		}
+	})
+
+	t.Run("--fix with --description imports the repaired skill", func(t *testing.T) {
+		code, out, stderr := runCLI("--config", cfgPath, "import", repair, "--fix", "--description", "Repaired.")
+		if code != 0 || !strings.HasPrefix(out, "import repair-me: ") {
+			t.Fatalf("exit = %d, out %q, stderr %q", code, out, stderr)
+		}
+		data, err := os.ReadFile(filepath.Join(vaultDir, "skills", "repair-me", "SKILL.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "---\nname: repair-me\ndescription: Repaired.\n---\n# Repair me\n"; string(data) != want {
+			t.Errorf("vault SKILL.md = %q, want %q", data, want)
+		}
+	})
+
+	t.Run("--all imports every skill of the source", func(t *testing.T) {
+		code, out, stderr := runCLI("--config", cfgPath, "import", pack, "--all")
+		if code != 0 {
+			t.Fatalf("exit = %d, stderr %q", code, stderr)
+		}
+		for _, name := range []string{"pack-one", "pack-two"} {
+			if !strings.Contains(out, "import "+name+": ") {
+				t.Errorf("output %q does not import %s", out, name)
+			}
+		}
+	})
+
+	t.Run("several skills without --all list their paths", func(t *testing.T) {
+		code, _, stderr := runCLI("--config", cfgPath, "--dry-run", "import", pack)
+		if code != 1 || !strings.Contains(stderr, "one/pack-one, two/pack-two") {
+			t.Errorf("exit = %d, stderr %q; want 1 listing the paths", code, stderr)
+		}
+	})
+}
+
+// writeImportFile writes content to path, creating its folders.
+func writeImportFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

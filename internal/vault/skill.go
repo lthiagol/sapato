@@ -23,6 +23,11 @@ const (
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// ValidName reports whether name is a valid skill name (spec §3 rule 5).
+func ValidName(name string) bool {
+	return nameRe.MatchString(name) && len(name) <= maxNameLen
+}
+
 // Skill is a skill folder in the vault.
 type Skill struct {
 	Name        string
@@ -60,7 +65,7 @@ func Load(dir, name string) (Skill, error) {
 		if err != nil {
 			return Skill{}, fmt.Errorf("read %s: %w", path, err)
 		}
-		s.validate(data)
+		s.validate(data, name)
 	}
 	s.Valid = len(s.Problems) == 0
 	return s, nil
@@ -70,8 +75,16 @@ func Load(dir, name string) (Skill, error) {
 // yet. The skill takes the name in its frontmatter, so no folder name is checked.
 // Dir and Hash are left empty.
 func ParseContent(data []byte) Skill {
+	return ParseFolder(data, "")
+}
+
+// ParseFolder validates data as the SKILL.md of a skill in a folder called folder,
+// which the name in the frontmatter must equal. An empty folder has no name to
+// match, so only the other rules apply. Name is the frontmatter name. Dir and Hash
+// are left empty.
+func ParseFolder(data []byte, folder string) Skill {
 	s := Skill{Name: contentName(data)}
-	s.validate(data)
+	s.validate(data, folder)
 	s.Valid = len(s.Problems) == 0
 	return s
 }
@@ -102,8 +115,9 @@ func FrontmatterName(dir string) (string, error) {
 	return name, nil
 }
 
-// validate applies the spec §3 rules to the contents of SKILL.md.
-func (s *Skill) validate(data []byte) {
+// validate applies the spec §3 rules to the contents of SKILL.md. folder is the
+// folder name for rule 4, or "" to skip it.
+func (s *Skill) validate(data []byte, folder string) {
 	fm, err := parseFrontmatter(data)
 	if err != nil {
 		s.Problems = append(s.Problems, "frontmatter: "+err.Error())
@@ -119,8 +133,8 @@ func (s *Skill) validate(data []byte) {
 	switch {
 	case name == "":
 		s.Problems = append(s.Problems, "frontmatter name must be a non-empty string")
-	case name != s.Name:
-		s.Problems = append(s.Problems, fmt.Sprintf("name %q does not match folder %q", name, s.Name))
+	case folder != "" && name != folder:
+		s.Problems = append(s.Problems, fmt.Sprintf("name %q does not match folder %q", name, folder))
 	}
 	if name != "" {
 		if !nameRe.MatchString(name) {
@@ -145,15 +159,9 @@ func parseFrontmatter(data []byte) (map[string]any, error) {
 	if !isDelimiter(lines[0]) {
 		return nil, errors.New("missing opening --- line")
 	}
-	end := -1
-	for i := 1; i < len(lines); i++ {
-		if isDelimiter(lines[i]) {
-			end = i
-			break
-		}
-	}
-	if end < 0 {
-		return nil, errors.New("missing closing --- line")
+	end, err := closingLine(lines)
+	if err != nil {
+		return nil, err
 	}
 
 	var fm map[string]any
@@ -161,6 +169,17 @@ func parseFrontmatter(data []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 	return fm, nil
+}
+
+// closingLine returns the index of the "---" line that closes the frontmatter
+// whose opening line is lines[0].
+func closingLine(lines []string) (int, error) {
+	for i := 1; i < len(lines); i++ {
+		if isDelimiter(lines[i]) {
+			return i, nil
+		}
+	}
+	return 0, errors.New("missing closing --- line")
 }
 
 func isDelimiter(line string) bool {

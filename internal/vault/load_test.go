@@ -108,6 +108,31 @@ func TestSkillDir(t *testing.T) {
 	}
 }
 
+func TestValidName(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"demo", true},
+		{"code-review-2", true},
+		{strings.Repeat("a", maxNameLen), true},
+		{strings.Repeat("a", maxNameLen+1), false},
+		{"", false},
+		{"Demo", false},
+		{"my skill", false},
+		{"-demo", false},
+		{"demo-", false},
+		{"../demo", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ValidName(tt.name); got != tt.want {
+				t.Errorf("ValidName(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseContent(t *testing.T) {
 	long := strings.Repeat("d", maxDescription+1)
 	tests := []struct {

@@ -57,6 +57,15 @@ func TestImport(t *testing.T) {
 			wantErr: `name "other" does not match frontmatter name "fresh-skill"`,
 		},
 		{
+			name: "folder named differently from the frontmatter imports under the frontmatter name",
+			src: func(t *testing.T) string {
+				dir := filepath.Join(t.TempDir(), "repo-checkout")
+				writeSkillDir(t, dir, "fresh-skill")
+				return dir
+			},
+			wantName: "fresh-skill",
+		},
+		{
 			name: "invalid skill is refused",
 			src: func(t *testing.T) string {
 				return fixtureSkill(t, "invalid-missing-description")

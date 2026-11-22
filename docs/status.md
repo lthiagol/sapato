@@ -18,6 +18,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
   - On first launch with no config, it offers to create the config, then the vault.
 - **Compatibility core (task 16):** `[skills.<name>] compatible` in `sapato.toml`, the `compat` command, the `incompatible` status, install and sync skips, doctor findings, and the compat list in tarball exports and imports.
 - **Compatibility in the TUI (task 17):** the `incompatible` icon in all three sets, sidebar and details marks, the `compat` line, `c` to toggle the marked or cursor agents, and `A` skipping incompatible agents with a report.
+- **Import sources and `--fix` (task 18):** local folder, `SKILL.md` file, raw `SKILL.md` URL, git, tarball. Discovery with `--subdir`, `--all` and a several-skills error. `--fix` and `--description` repair the vault copy. The ops discovery API is `ops.Discover` (for the TUI, task 19).
 
 ## Open nits (optional, from the last review)
 
