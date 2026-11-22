@@ -1,6 +1,12 @@
-# Sapato
-
-**S**kills **A**dministration, **P**ackaging & **A**gent **T**ool **O**rganization.
+```
+    ███████╗ █████╗ ██████╗  █████╗ ████████╗ ██████╗
+    ██╔════╝██╔══██╗██╔══██╗██╔══██╗╚══██╔══╝██╔═══██╗
+    ███████╗███████║██████╔╝███████║   ██║   ██║   ██║
+    ╚════██║██╔══██║██╔═══╝ ██╔══██║   ██║   ██║   ██║
+    ███████║██║  ██║██║     ██║  ██║   ██║   ╚██████╔╝
+    ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝   ╚═╝    ╚═════╝
+Skills Administration, Packaging & Agent Tool Organization
+```
 
 Keep your agent skills in one portable folder (the *vault*) and install them into Claude, Cursor, pi, OpenCode and `.agents` from a TUI or the CLI. Installs are copies; Sapato tracks what it installed so it can update, diff and clean up safely.
 
