@@ -39,6 +39,23 @@ func (f *fakeBackend) Create(content []byte, opts ops.Options) (ops.Action, erro
 	return ops.Action{Op: ops.OpCreate, Skill: s.Name, Path: "/vault/skills/" + s.Name}, nil
 }
 
+// Scaffold records the call with its compatible list, "all" for nil. It refuses a
+// name in inVault unless forced, as ops does.
+func (f *fakeBackend) Scaffold(name, description string, compatible []string, opts ops.Options) (ops.Action, error) {
+	compat := "all"
+	if compatible != nil {
+		compat = strings.Join(compatible, ",")
+	}
+	f.calls = append(f.calls, fmt.Sprintf("scaffold %s compat=%s dry=%t force=%t", name, compat, opts.DryRun, opts.Force))
+	if err := f.opErr[opScaffold]; err != nil {
+		return ops.Action{}, err
+	}
+	if f.inVault[name] && !opts.Force {
+		return ops.Action{}, refusal(fmt.Sprintf("create %s: already in the vault (use --force)", name), "already in the vault")
+	}
+	return ops.Action{Op: ops.OpCreate, Skill: name, Path: "/vault/skills/" + name}, nil
+}
+
 // candidates is what the fake reads from src: the candidates set for it, else one
 // valid skill named after the source.
 func (f *fakeBackend) candidates(src string) []ops.Candidate {
@@ -245,7 +262,7 @@ func TestNewCancelsAndDiscards(t *testing.T) {
 		t.Errorf("esc on an empty editor: mode = %v, want the grid", got.mode)
 	}
 
-	m = press(t, m, "x", "esc")
+	m = press(t, m, "tab", "x", "esc")
 	if m.mode != modeConfirm || m.pending.act.op != opDiscard {
 		t.Fatalf("esc on text: mode %v, pending %q; want the discard confirm", m.mode, m.pending.act.op)
 	}
@@ -286,7 +303,7 @@ func TestNewLiveCheck(t *testing.T) {
 
 func TestNewSaveShowsErrorAndKeepsEditor(t *testing.T) {
 	b := &fakeBackend{}
-	m := press(t, loaded(t, b, dialogAgents), "n")
+	m := press(t, loaded(t, b, dialogAgents), "n", "tab")
 	m = typeText(t, m, "not a skill")
 	m = press(t, m, "ctrl+s")
 	if m.mode != modeNew || !m.lastErr() || !strings.Contains(m.lastMsg(), "invalid skill") {
@@ -298,7 +315,7 @@ func TestNewSaveCreatesSkillOnFixtureCopy(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	m, vaultDir, _ := fixtureModel(t)
 	m = sized(t, m, 100, 30)
-	m = typeText(t, press(t, m, "n"), freshSkill)
+	m = typeText(t, press(t, m, "n", "tab"), freshSkill)
 	if text, _ := m.newCheck(); text != "valid: fresh-skill" {
 		t.Fatalf("live check = %q, want valid", text)
 	}
@@ -317,7 +334,7 @@ func TestNewSaveCreatesSkillOnFixtureCopy(t *testing.T) {
 func TestNewSaveOfExistingNameNeedsForce(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	m, vaultDir, _ := fixtureModel(t)
-	m = press(t, m, "n")
+	m = press(t, m, "n", "tab")
 	m = typeText(t, m, strings.ReplaceAll(freshSkill, "fresh-skill", "mocked-skill-00004"))
 	m = press(t, m, "ctrl+s")
 	if m.mode != modeConfirm || !m.pending.act.force {
@@ -507,7 +524,7 @@ func TestDialogsFitTheWidth(t *testing.T) {
 		{name: "IMPORT", keys: []string{"I"}, want: modeImport, setup: func(m Model) Model { m.path.SetValue(long); return m }},
 		{name: "THEME", keys: []string{"t"}, want: modeTheme},
 		{name: "EXPORT", keys: []string{"enter", "x"}, want: modeExport, setup: func(m Model) Model { m.path.SetValue(long); return m }},
-		{name: "discard", keys: []string{"n", "x", "esc"}, want: modeConfirm},
+		{name: "discard", keys: []string{"n", "tab", "x", "esc"}, want: modeConfirm},
 		{name: "HELP", keys: []string{"?"}, want: modeHelp},
 		{name: "skill HELP", keys: []string{"enter", "?"}, want: modeHelp},
 		{name: "plain confirm", rows: []ops.Row{row(longSkill, "claude", ops.NotInstalled)}, keys: []string{"enter", "D"}, want: modeConfirm},
@@ -611,7 +628,7 @@ func TestConfirmBoxIsCentered(t *testing.T) {
 		{name: "plain uninstall", rows: []ops.Row{row(longSkill, "claude", ops.Synced)}, keys: []string{"enter", "u"}, title: "Uninstall", under: "AGENTS"},
 		{name: "plain remove", rows: []ops.Row{row(longSkill, "claude", ops.NotInstalled)}, keys: []string{"enter", "D"}, title: "Remove", under: "AGENTS"},
 		{name: "force confirm", rows: []ops.Row{row(longSkill, "claude", ops.Synced)}, keys: []string{"enter", "D"}, title: "Force remove", force: true, under: "AGENTS"},
-		{name: "discard confirm", keys: []string{"n", "x", "esc"}, title: "Discard", under: "invalid:"},
+		{name: "discard confirm", keys: []string{"n", "tab", "x", "esc"}, title: "Discard", under: "invalid:"},
 		{name: "config prompt", start: firstRun(false, true), title: "Create config", under: "SKILL", text: []string{"defaults for this run."}},
 		{name: "vault prompt", start: firstRun(true, false), title: "Create vault", under: "SKILL", text: []string{"Creates sapato.toml", "exits."}},
 	}

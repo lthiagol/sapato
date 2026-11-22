@@ -99,6 +99,10 @@ func confirmTitle(a action) string {
 		return "Create config"
 	case a.op == opVaultInit:
 		return "Create vault"
+	case a.op == opEdit:
+		return "Open in editor"
+	case a.op == opScaffold && a.force:
+		return "Force create"
 	case a.force:
 		return "Force " + a.op
 	}
@@ -163,8 +167,11 @@ func (m Model) adoptBody(w int) []string {
 	return lines
 }
 
-// newBody is the NEW editor with its live check under it.
+// newBody is NEW: the wizard, or the paste mode's editor with its live check under it.
 func (m Model) newBody(w int) []string {
+	if !m.newPaste {
+		return m.wizardBody(w)
+	}
 	text, style := m.newCheck()
 	return append(strings.Split(m.area.View(), "\n"), "", style.Render(truncate(text, w)))
 }

@@ -24,6 +24,7 @@ type Backend interface {
 	ToggleCompat(skill string, agents, configured []string) ([]string, error)
 	Remove(skill string, opts ops.Options) (ops.Action, error)
 	Create(content []byte, opts ops.Options) (ops.Action, error)
+	Scaffold(name, description string, compatible []string, opts ops.Options) (ops.Action, error)
 	Discover(src string) ([]ops.Candidate, error)
 	Import(src string, opts ops.ImportOptions) ([]ops.Action, error)
 	ExportName(skill string) (string, error)
@@ -77,6 +78,11 @@ func (b opsBackend) Remove(skill string, opts ops.Options) (ops.Action, error) {
 
 func (b opsBackend) Create(content []byte, opts ops.Options) (ops.Action, error) {
 	return ops.Create(b.v, content, opts)
+}
+
+// Scaffold writes the template of a new skill, as the NEW wizard does.
+func (b opsBackend) Scaffold(name, description string, compatible []string, opts ops.Options) (ops.Action, error) {
+	return ops.Scaffold(b.v, name, description, compatible, opts)
 }
 
 // Discover lists the skills of an import source without changing the vault. The

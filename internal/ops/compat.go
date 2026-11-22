@@ -26,12 +26,8 @@ func SetCompat(v *vault.Vault, skill string, agents []string, opts Options) erro
 	}
 	var list []string
 	if agents != nil {
-		for _, a := range agents {
-			if !slices.Contains(list, a) {
-				list = append(list, a)
-			}
-		}
-		if err := vault.ValidateCompat(list); err != nil {
+		var err error
+		if list, err = compatList(agents); err != nil {
 			return fmt.Errorf("compat %s: %w", skill, err)
 		}
 	}
@@ -69,6 +65,31 @@ func ToggleCompat(v *vault.Vault, skill string, agents, configured []string) ([]
 		list = nil
 	}
 	if err := SetCompat(v, skill, list, Options{}); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// NormalizeCompat returns the compatible list to store for agents, given the agents
+// configured here: nil when agents names every configured agent, since then the skill
+// has no table (spec §3), else agents as given.
+func NormalizeCompat(agents, configured []string) []string {
+	if agents != nil && sameAgents(agents, configured) {
+		return nil
+	}
+	return agents
+}
+
+// compatList returns agents without duplicates, in the order given, as a compatible
+// list. It is an error when the list is empty or a name is not an agent name.
+func compatList(agents []string) ([]string, error) {
+	var list []string
+	for _, a := range agents {
+		if !slices.Contains(list, a) {
+			list = append(list, a)
+		}
+	}
+	if err := vault.ValidateCompat(list); err != nil {
 		return nil, err
 	}
 	return list, nil

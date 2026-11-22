@@ -22,12 +22,15 @@ import (
 // and THEME. Their work goes through the same plan, confirm and apply path as the
 // screen keys, so a refusal that --force overrides gets the force prompt.
 
-// opExport and opDiscard are the actions the dialogs add to the ops ones. An export
-// writes a file, and a discard drops the text of the NEW editor. Neither is an
-// ops.Action.
+// opExport, opDiscard, opScaffold and opEdit are the actions the dialogs add to the
+// ops ones. An export writes a file, a discard drops the text of NEW, a scaffold writes
+// the template of a skill from the wizard, and an edit opens the scaffolded file in the
+// editor. Only a scaffold is an ops.Action.
 const (
-	opExport  = "export"
-	opDiscard = "discard"
+	opExport   = "export"
+	opDiscard  = "discard"
+	opScaffold = "scaffold"
+	opEdit     = "edit"
 )
 
 // exportNameMsg carries the default file name of an export.
@@ -67,7 +70,7 @@ func newPathInput() textinput.Model {
 func (m *Model) sizeInputs() {
 	m.area.SetWidth(m.inputWidth())
 	m.area.SetHeight(max(1, m.bodyHeight()-2))
-	for _, in := range []*textinput.Model{&m.path, &m.fixup.name, &m.fixup.desc} {
+	for _, in := range []*textinput.Model{&m.path, &m.fixup.name, &m.fixup.desc, &m.wiz.name, &m.wiz.desc} {
 		in.Width = max(1, m.inputWidth()-lipgloss.Width(in.Prompt)-1)
 	}
 }
@@ -130,27 +133,28 @@ func (m *Model) scrollPick() {
 	scrollWindow(&m.pickTop, m.pick, m.pickRows())
 }
 
-// openNew opens the NEW editor, empty.
+// openNew opens NEW on the wizard, empty, and clears the paste mode's text.
 func (m Model) openNew() (Model, tea.Cmd) {
 	m.mode = modeNew
+	m.newPaste = false
 	m.area.Reset()
-	return m, m.area.Focus()
+	return m.openWizard()
 }
 
-// newKey types into the editor. ctrl+s saves its text as a skill. esc closes the
-// editor, after a confirm when the text is not empty.
+// newKey routes a key to the wizard, or to the paste mode's editor. In the paste mode
+// ctrl+s saves the text as a skill, tab goes back to the wizard, and esc closes NEW as
+// the wizard does.
 func (m Model) newKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if !m.newPaste {
+		return m.wizardKey(msg)
+	}
 	switch {
 	case key.Matches(msg, m.keys.save):
 		return m.startCreate()
+	case key.Matches(msg, m.keys.tab):
+		return m.switchNew()
 	case key.Matches(msg, m.keys.esc):
-		if strings.TrimSpace(m.area.Value()) == "" {
-			m.mode = modeNormal
-			return m, nil
-		}
-		m.pending = pending{act: action{op: opDiscard, back: modeNew}}
-		m.mode = modeConfirm
-		return m, nil
+		return m.escNew()
 	}
 	var cmd tea.Cmd
 	m.area, cmd = m.area.Update(msg)

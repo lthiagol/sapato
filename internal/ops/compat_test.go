@@ -583,3 +583,32 @@ func TestCheckManifestCompat(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeCompat(t *testing.T) {
+	configured := []string{"claude", "cursor", "pi"}
+	tests := []struct {
+		name   string
+		agents []string
+		want   []string
+		isNil  bool
+	}{
+		{name: "nil stays nil", agents: nil, isNil: true},
+		{name: "every configured agent is no table", agents: []string{"pi", "claude", "cursor"}, isNil: true},
+		{name: "a subset is kept as given", agents: []string{"pi", "claude"}, want: []string{"pi", "claude"}},
+		{name: "an empty list is kept, so it is refused later", agents: []string{}, want: []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeCompat(tt.agents, configured)
+			if tt.isNil {
+				if got != nil {
+					t.Errorf("NormalizeCompat() = %q, want nil", got)
+				}
+				return
+			}
+			if got == nil || !slices.Equal(got, tt.want) {
+				t.Errorf("NormalizeCompat() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}

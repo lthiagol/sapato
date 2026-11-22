@@ -67,6 +67,7 @@ var doneTitles = map[string]string{
 	ops.OpCreate:    "created",
 	ops.OpImport:    "imported",
 	opExport:        "exported",
+	opScaffold:      "created",
 }
 
 // doneTitle is the title of the notification of an applied action.

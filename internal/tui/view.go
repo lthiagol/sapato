@@ -244,6 +244,9 @@ func (m Model) confirmBody(w int) []string {
 	if p.act.op == opVaultInit {
 		return append([]string{m.styles.bold.Render(truncate("No vault at "+p.act.path+". Create it?", w)), ""}, m.effectLines(p.act, w)...)
 	}
+	if p.act.op == opEdit {
+		return append([]string{m.styles.bold.Render(truncate("Open "+p.act.path+" in "+m.editorName(p.act.path)+"?", w)), ""}, m.effectLines(p.act, w)...)
+	}
 	lines := []string{m.styles.bold.Render(truncate(capitalize(subject(p.act))+"?", w)), ""}
 	if p.act.force {
 		for _, l := range wrapText(strings.Join(p.reasons, "\n"), w-2) {
@@ -389,7 +392,10 @@ func (m Model) barHints() (own, global []key.Binding) {
 	case modeAdopt:
 		return []key.Binding{adoptHint}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeNew:
-		return []key.Binding{m.keys.save}, []key.Binding{cancelHint}
+		if m.newPaste {
+			return []key.Binding{m.keys.save, wizardHint}, []key.Binding{cancelHint}
+		}
+		return []key.Binding{m.keys.save, m.keys.mark, pasteHint}, []key.Binding{fieldsHint, cancelHint}
 	case modeImport:
 		return []key.Binding{runHint, m.keys.openFile}, []key.Binding{cancelHint}
 	case modeExport:
@@ -535,7 +541,7 @@ func subject(a action) string {
 	switch a.op {
 	case ops.OpRemove:
 		return "remove " + a.skill
-	case ops.OpCreate:
+	case ops.OpCreate, opScaffold:
 		return "create " + a.skill
 	case ops.OpImport:
 		return "import " + a.src
@@ -543,6 +549,8 @@ func subject(a action) string {
 		return "create config " + a.path
 	case opVaultInit:
 		return "create vault " + a.path
+	case opEdit:
+		return "open " + a.path
 	}
 	return fmt.Sprintf("%s %s in %s", a.op, a.skill, agentIDs(a.agents))
 }
@@ -564,6 +572,8 @@ func effect(a action) string {
 		return "Deletes the skill from the vault."
 	case ops.OpCreate, ops.OpImport:
 		return "Overwrites the same-named skill in the vault."
+	case opScaffold:
+		return "Overwrites the same-named skill and drops its compatible list."
 	case ops.OpUninstall:
 		if a.force {
 			return "Local edits are lost with the installed copy and its lock entry."
@@ -575,6 +585,8 @@ func effect(a action) string {
 		return "Overwrites the existing folder, including anything in it."
 	case ops.OpAdopt:
 		return fmt.Sprintf("Replaces the vault copy of %s with this folder.", a.skill)
+	case opEdit:
+		return "The skill is already saved. The editor keeps the terminal until it exits."
 	}
 	return ""
 }

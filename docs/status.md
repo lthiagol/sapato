@@ -20,6 +20,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 - **Compatibility in the TUI (task 17):** the `incompatible` icon in all three sets, sidebar and details marks, the `compat` line, `c` to toggle the marked or cursor agents, and `A` skipping incompatible agents with a report.
 - **Import sources and `--fix` (task 18):** local folder, `SKILL.md` file, raw `SKILL.md` URL, git, tarball. Discovery with `--subdir`, `--all` and a several-skills error. `--fix` and `--description` repair the vault copy. The ops discovery API is `ops.Discover` (for the TUI, task 19).
 - **IMPORT dialog (task 19):** source input with a `ctrl+o` file picker, a multi-select list for several skills (`ops.ImportOptions.Pick`, all or nothing), a fix-up form for `--fix`, and the force prompt for names already in the vault.
+- **New-skill scaffold and wizard (task 20):** `new --name --description [--compatible a,b] [--edit]` writes the §7.2 template. The TUI NEW wizard takes a name, a description and the agents, then `ctrl+s` scaffolds and offers to open the file in the editor. `tab` switches to the paste mode.
 
 ## Open nits (optional, from the last review)
 

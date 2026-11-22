@@ -16,9 +16,11 @@ import (
 )
 
 const (
-	skillFileName  = "SKILL.md"
-	maxNameLen     = 64
-	maxDescription = 1024
+	skillFileName = "SKILL.md"
+	maxNameLen    = 64
+
+	// MaxDescription is the most characters a skill description may have (spec §3 rule 6).
+	MaxDescription = 1024
 )
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -148,8 +150,8 @@ func (s *Skill) validate(data []byte, folder string) {
 	switch n := utf8.RuneCountInString(description); {
 	case description == "":
 		s.Problems = append(s.Problems, "frontmatter description must be a non-empty string")
-	case n > maxDescription:
-		s.Problems = append(s.Problems, fmt.Sprintf("description is %d characters, max %d", n, maxDescription))
+	case n > MaxDescription:
+		s.Problems = append(s.Problems, fmt.Sprintf("description is %d characters, max %d", n, MaxDescription))
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -68,8 +69,9 @@ type cell struct {
 // the targets of a skill action. force is set only once the user has accepted a
 // force prompt. skipIncompatible reports an incompatible install as a skip, not a
 // refusal (A). back is the mode a confirm of the action returns to. content, src and
-// path are the inputs of a create, an import and an export. importOpts are the
-// choices of an import; the dry run and force flags are set when it runs.
+// path are the inputs of a create, an import and an export. desc and compat are the
+// inputs of a scaffold, compat nil for every agent. importOpts are the choices of an
+// import; the dry run and force flags are set when it runs.
 type action struct {
 	op               string
 	skill            string
@@ -80,6 +82,8 @@ type action struct {
 	content          []byte
 	src              string
 	path             string
+	desc             string
+	compat           []string
 	importOpts       ops.ImportOptions
 }
 
@@ -124,18 +128,22 @@ type Model struct {
 	diff      viewport.Model
 	diffTitle string
 
-	th        theme.Theme     // the palette the styles paint with
-	themePrev theme.Theme     // the palette in use when THEME opened, restored on esc
-	themeCur  int             // cursor over theme.All while THEME is open
-	themeTop  int             // first theme row shown
-	pick      int             // cursor over the ADOPT rows
-	pickTop   int             // first ADOPT row shown
-	area      textarea.Model  // the NEW editor
-	path      textinput.Model // the IMPORT and EXPORT path
-	home      string          // the folder the IMPORT file picker opens in when the source names none
-	multi     candList        // the IMPORT list of several skills
-	fixup     fixForm         // the IMPORT fix-up form
-	browse    browser         // the IMPORT file picker
+	th        theme.Theme                 // the palette the styles paint with
+	themePrev theme.Theme                 // the palette in use when THEME opened, restored on esc
+	themeCur  int                         // cursor over theme.All while THEME is open
+	themeTop  int                         // first theme row shown
+	pick      int                         // cursor over the ADOPT rows
+	pickTop   int                         // first ADOPT row shown
+	area      textarea.Model              // the paste mode of NEW
+	newPaste  bool                        // NEW shows the paste mode instead of the wizard
+	wiz       newWizard                   // the NEW wizard
+	editArgv  func(path string) []string  // the editor command line that opens a file (spec §7)
+	editRun   func(argv []string) tea.Cmd // runs an editor command line; tests replace it
+	path      textinput.Model             // the IMPORT and EXPORT path
+	home      string                      // the folder the IMPORT file picker opens in when the source names none
+	multi     candList                    // the IMPORT list of several skills
+	fixup     fixForm                     // the IMPORT fix-up form
+	browse    browser                     // the IMPORT file picker
 
 	notes   []notification // every notification of the session, oldest first, at most maxNotes
 	pushed  int            // notifications pushed so far, LOG drops the oldest past maxNotes
@@ -173,8 +181,12 @@ func New(b Backend, agents []config.Agent, th theme.Theme, set icons.Set, noColo
 		th:          th,
 		area:        newEditor(),
 		path:        newPathInput(),
-		now:         time.Now,
-		tick:        tea.Tick,
+		editArgv: func(path string) []string {
+			return ops.EditorCommand(os.Getenv("VISUAL"), os.Getenv("EDITOR"), path)
+		},
+		editRun: execEditor,
+		now:     time.Now,
+		tick:    tea.Tick,
 	}
 }
 
@@ -261,6 +273,8 @@ func (m Model) handle(msg tea.Msg) (Model, tea.Cmd) {
 		m.scrollAgents()
 	case exportNameMsg:
 		return m.onExportName(msg)
+	case editDoneMsg:
+		return m.onEdited(msg)
 	case loadedMsg:
 		if msg.err != nil {
 			m.notify(noteError, "error", msg.err.Error())
@@ -670,18 +684,26 @@ func (m Model) confirmKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.notify(noteInfo, "discarded", "new skill discarded")
 		return m, nil
 	}
+	if act.op == opEdit {
+		return m, m.editRun(m.editArgv(act.path))
+	}
 	return m, applyCmd(m.backend, act)
 }
 
 // onApplied shows the result of an applied action. A dialog closes once its
-// action is done. The adopt picker stays open, so the copies left can be adopted.
+// action is done. The adopt picker stays open, so the copies left can be adopted. A
+// scaffold asks whether to open the new SKILL.md in the editor.
 func (m Model) onApplied(msg appliedMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
 		m.notify(noteError, "error", msg.err.Error())
 		return m, m.loadCmd(false)
 	}
 	m.notify(noteSuccess, doneTitle(msg.act.op), summarize(msg.done))
-	if msg.act.op != ops.OpAdopt {
+	switch {
+	case msg.act.op == opScaffold && len(msg.done) > 0:
+		m.pending = pending{act: action{op: opEdit, path: filepath.Join(msg.done[0].Path, "SKILL.md"), back: modeNormal}}
+		m.mode = modeConfirm
+	case msg.act.op != ops.OpAdopt:
 		m.mode = modeNormal
 	}
 	return m, m.loadCmd(false)
@@ -797,6 +819,8 @@ func perform(b Backend, act action, dryRun bool) ([]ops.Action, error) {
 		return one(b.Remove(act.skill, opts))
 	case ops.OpCreate:
 		return one(b.Create(act.content, opts))
+	case opScaffold:
+		return one(b.Scaffold(act.skill, act.desc, act.compat, opts))
 	case ops.OpImport:
 		o := act.importOpts
 		o.Options = opts

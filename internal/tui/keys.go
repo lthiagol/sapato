@@ -26,6 +26,9 @@ type keyMap struct {
 	// the list, parent goes up a folder in the picker, dotfiles shows or hides the
 	// dot entries, and field moves between the fix-up form's inputs.
 	openFile, markAll, parent, dotfiles, field key.Binding
+	// The NEW keys: tab switches between the wizard and the paste mode. The wizard
+	// moves between its fields with the arrows alone, since its inputs take j and k.
+	tab, fieldUp, fieldDown key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -71,6 +74,10 @@ func newKeyMap() keyMap {
 		parent:   key.NewBinding(key.WithKeys("backspace"), key.WithHelp("backspace", "up")),
 		dotfiles: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "dotfiles")),
 		field:    key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "next field")),
+
+		tab:       key.NewBinding(key.WithKeys("tab")),
+		fieldUp:   key.NewBinding(key.WithKeys("up")),
+		fieldDown: key.NewBinding(key.WithKeys("down")),
 	}
 }
 
@@ -98,6 +105,10 @@ var (
 	chooseHint = key.NewBinding(key.WithHelp("space", "choose"))
 	openHint   = key.NewBinding(key.WithHelp("enter", "open"))
 	upHint     = key.NewBinding(key.WithHelp("backspace", "up"))
+	// The NEW hints name the keys of the wizard and the paste mode.
+	pasteHint  = key.NewBinding(key.WithHelp("tab", "paste"))
+	wizardHint = key.NewBinding(key.WithHelp("tab", "wizard"))
+	fieldsHint = key.NewBinding(key.WithHelp("↑↓", "fields"))
 )
 
 // mainHints lists the main screen's own bindings in hint order: the actions the bar

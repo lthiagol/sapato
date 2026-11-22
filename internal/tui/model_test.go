@@ -851,7 +851,7 @@ func TestForceConfirmShowsReasonsForEveryRefusal(t *testing.T) {
 			name: "create over a skill in the vault", op: "create",
 			start: func(t *testing.T) Model {
 				b := &fakeBackend{inVault: map[string]bool{"alpha": true}}
-				m := press(t, loaded(t, b, dialogAgents), "n")
+				m := press(t, loaded(t, b, dialogAgents), "n", "tab")
 				return press(t, typeText(t, m, strings.ReplaceAll(freshSkill, "fresh-skill", "alpha")), "ctrl+s")
 			},
 			reasons: []string{"already in the vault"},

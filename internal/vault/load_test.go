@@ -134,7 +134,7 @@ func TestValidName(t *testing.T) {
 }
 
 func TestParseContent(t *testing.T) {
-	long := strings.Repeat("d", maxDescription+1)
+	long := strings.Repeat("d", MaxDescription+1)
 	tests := []struct {
 		name      string
 		content   string
