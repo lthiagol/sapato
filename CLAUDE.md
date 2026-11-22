@@ -1,6 +1,7 @@
 # Sapato — agent conventions
 
 Go CLI + Bubble Tea TUI for managing a skill vault. Spec: `docs/spec.md` (source of truth). Tasks: `docs/tasks/`.
+Resuming? Read `docs/status.md` first (what is done, open nits, how the build/review loop runs).
 
 ## Rules
 
