@@ -33,7 +33,7 @@ sapato             # TUI
 
 ## Config
 
-`~/.config/sapato/config.toml` (or `--config <path>`). Create a commented starter with `sapato config init`; the TUI offers to create it (and the vault) on first launch. Without a config, the built-in agents below are used.
+`~/.config/sapato/config.toml` (or `--config <path>`). Print the full commented default with `sapato config default`, or write it with `sapato config init`; the TUI offers to create it (and the vault) on first launch. Without a config, the built-in agents below are used.
 
 ```toml
 vault = "~/sapato-vault"
@@ -117,21 +117,25 @@ Each install writes `<agent dir>/.sapato-lock.json`. Status compares the vault, 
 | command | does |
 |---------|------|
 | `config` | print the resolved config |
-| `config init [--force]` | write a commented starter config to the `--config` path |
-| `init [path]` | create a vault |
+| `config default` | print the full commented default config |
+| `config init [--force]` | write that default config to the `--config` path |
+| `init [path]` | create a vault (with a commented `sapato.toml`) |
 | `list` | list vault skills and validity |
 | `status [skill…] [-a id…] [--json]` | skill × agent status |
-| `install <skill…> -a id… \| --all` | copy skills into agents |
+| `install <skill…> -a id… \| --all` | copy skills into agents (incompatible agents need `--force`) |
 | `uninstall <skill…> -a id…` | remove managed skills |
 | `update [skill…] [-a id…]` | re-install outdated skills |
 | `diff <skill> -a id` | installed copy vs vault |
-| `import <path\|git-url\|tarball> [--subdir d] [--name n]` | add skills to the vault |
+| `import <source> [--subdir d \| --all] [--name n] [--fix [--description d]]` | add skills from a folder, `.md` file, git URL, raw `SKILL.md` URL or tarball |
 | `new [file]` | create a skill from a complete `SKILL.md` (file or stdin) |
+| `new --name n --description d [--compatible a,b] [--edit]` | scaffold a skill from the template |
+| `compat <skill> [agent… \| --all]` | show or set which agents a skill works with |
 | `export <skill…> [-o file]` | write a `.skill.tar.gz` (one or more skills) |
-| `adopt <skill> -a id` | pull an unmanaged agent skill into the vault |
+| `adopt <skill…> -a id` | pull unmanaged agent skills into the vault (identical copies elsewhere become synced) |
 | `remove <skill>` | delete a skill from the vault |
 | `sync [--prune]` | apply `[assignments]` |
-| `doctor` | invalid skills, broken locks, drift, skills an agent sees twice |
+| `doctor` | invalid skills, broken locks, drift, skills an agent sees twice, compatibility problems |
+| `guide [--install]` | print (or add to the vault) a skill that teaches agents to write skills for this vault |
 | `tui` (or no command) | interactive UI (`?` for keys) |
 
 Global flags: `--config`, `--dry-run`, `--theme`, `--icons`. Skill args accept globs.
