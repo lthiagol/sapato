@@ -241,11 +241,11 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 1. **Header**, centered: the ANSI Shadow `SAPATO` art (exact text in `internal/tui/art.go`, see task 10) in the theme accent, then the tagline `Skills Administration, Packaging & Agent Tool Organization` in subtext. If the terminal is shorter than 30 rows or narrower than the art, use a one-line header: `sapato · <tagline>` (tagline dropped if it doesn't fit).
 2. **Rule** (full width, overlay color).
 3. **Screen body** (below).
-4. **Bottom bar**: a full-width rule (Overlay) and then 2 rows. No background fill (it blends with the screen), no mode badge, no powerline glyphs.
+4. **Bottom bar**: a full-width rule carrying the summary, then 1 hint row (2 when it wraps). No background fill (it blends with the screen), no mode badge, no powerline glyphs.
    - Hint style everywhere: key in Accent (bold), description in Subtext, hints joined with ` · ` in Overlay.
-   - Row 1: the current screen's/mode's **action** hints, horizontally centered; truncated with `…` if too wide. FILTER mode shows `/ <query>` followed by its hints (`enter apply · esc clear`). A confirm shows `y yes · n no`.
-   - Row 2, left (1-col pad): **global** hints: `↑↓ move` (and `pgup/pgdn page` on the skill screen), `esc back` where it applies, `t theme`, `L log`, `? help`, `q quit`.
-   - Row 2, right (1-col pad): the summary `N skills · N invalid · N need attention`; `N skills` in Text, the invalid part in Red and the attention part in Yellow, either dimmed to Overlay when 0. If row 2 can't fit both, the left part is truncated with `…`; the summary is kept.
+   - **Rule with summary**: the rule (Overlay) holds the summary right-aligned, as ` N skills · N invalid · N need attention ` followed by `──` (2 rule glyphs) to the right edge; `N skills` in Text, the invalid part in Red and the attention part in Yellow, either dimmed to Overlay when 0. If the terminal is too narrow for the summary plus 4 rule glyphs, the parts drop from the right (attention, then invalid); if even `N skills` doesn't fit, the rule is plain.
+   - **Hint row**, left-aligned with a 1-col pad: the current screen's/mode's **action** hints, then ` │ ` (Overlay), then the **global** hints: `↑↓ move` (and `pgup/pgdn page` on the skill screen), `esc back` where it applies, `t theme`, `L log`, `? help`, `q quit`. Global hints are drawn one step dimmer (key in Subtext, description in Overlay). FILTER mode's action part is `/ <query>` followed by `enter apply · esc clear`; a confirm's is `y yes · n no`.
+   - **Fitting**: if the row is wider than the terminal, the globals move to a second row (same pad, no `│`). If the globals still don't fit, `t theme` then `L log` are dropped (`?` lists them). If the action part alone is too wide, it is truncated with `…`. The bar is therefore 2 or 3 lines tall; the body gets the rest.
    - The bar shows no action messages; those are notifications (§9.6).
 
 ### 9.2 Main screen (mode `MAIN`)
@@ -254,7 +254,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 - Cursor is per row (skill). No column cursor. Selected row uses the surface color background and a `▶`/`>` marker.
 - Status icon per cell (§9.5) colored by status. Empty cell (pair absent everywhere) = blank.
 - Keys: `↑↓`/`jk` move, `g`/`G` top/bottom, `pgup`/`pgdn`, `enter` open skill screen, `/` filter (substring; `esc` clears), `r` refresh, `a` adopt picker, `n` new skill, `I` import (§9.4), `t` theme picker, `?` help, `q` quit.
-- Bar counts (row 1): `N skills · N invalid · N need attention` (attention = outdated + modified + orphaned + missing).
+- Bar summary (in the bar's rule): `N skills · N invalid · N need attention` (attention = outdated + modified + orphaned + missing).
 
 ### 9.3 Skill screen (mode `SKILL`)
 
