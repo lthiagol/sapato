@@ -20,7 +20,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 ## Open nits (optional, from the last review)
 
 - `internal/tui/dialogs_view.go`, confirm box: at 60 columns a long question is truncated. It could wrap to 2 lines instead.
-- The phrase "has local edits" is written in both `internal/ops/force.go` and the TUI reason text.
+- The phrase "has local edits" is written in both `internal/ops` (`install.go`, `uninstall.go`, `doctor.go`) and `internal/tui/model.go`.
 - The empty-vault message on the main screen is hard-clipped at 60 columns, with no `…`.
 
 ## Not started
