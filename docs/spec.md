@@ -91,7 +91,7 @@ theme = "catppuccin-mocha"
 # Skill assignments and per-skill compatibility live in the vault's sapato.toml.
 ```
 
-The `reads` comments' column alignment is computed (values padded to the longest path + 1).
+The `reads` comments' column alignment is computed: each comment starts 3 spaces after the end of the longest agent line.
 
 ### Built-in defaults
 

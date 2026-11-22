@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"sapato/internal/config"
 	"sapato/internal/vault"
 )
 
@@ -40,7 +41,7 @@ func (m Model) configKey(msg tea.KeyMsg, act action) Model {
 // writeConfig writes the starter config at path for the first-launch prompt, and
 // notifies the result.
 func (m Model) writeConfig(path string) Model {
-	if err := WriteStarterConfig(path, false); err != nil {
+	if err := config.WriteDefault(path, false); err != nil {
 		m.notify(noteError, "error", err.Error())
 		return m
 	}

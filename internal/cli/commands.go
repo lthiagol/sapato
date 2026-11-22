@@ -12,7 +12,6 @@ import (
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
-	"sapato/internal/tui"
 	"sapato/internal/vault"
 )
 
@@ -40,20 +39,32 @@ func newConfigCmd(opts *globalOpts) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(newConfigInitCmd(opts))
+	cmd.AddCommand(newConfigDefaultCmd(), newConfigInitCmd(opts))
 	return cmd
+}
+
+func newConfigDefaultCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "default",
+		Short: "Print the commented default config to stdout",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			fmt.Fprint(cmd.OutOrStdout(), config.DefaultText())
+			return nil
+		},
+	}
 }
 
 func newConfigInitCmd(opts *globalOpts) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Write a commented starter config to the --config path",
+		Short: "Write the commented default config to the --config path",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 			if opts.dryRun {
-				fmt.Fprint(out, tui.StarterConfig())
+				fmt.Fprint(out, config.DefaultText())
 				return nil
 			}
 			home, err := os.UserHomeDir()
@@ -61,7 +72,7 @@ func newConfigInitCmd(opts *globalOpts) *cobra.Command {
 				return fmt.Errorf("find home dir: %w", err)
 			}
 			path := config.Path(opts.configPath, home)
-			if err := tui.WriteStarterConfig(path, force); err != nil {
+			if err := config.WriteDefault(path, force); err != nil {
 				return err
 			}
 			fmt.Fprintf(out, "wrote config %s\n", path)

@@ -80,6 +80,29 @@ func Exists(path string) (bool, error) {
 	}
 }
 
+// newManifest is the manifest of a new vault (spec §3.1). It has no machine-specific paths.
+const newManifest = `# Sapato vault manifest. Portable: no machine-specific paths here.
+
+# Vault format version. Only 1 is supported.
+format = 1
+
+# Desired installs, applied by ` + "`sapato sync`" + `.
+# One line per agent name from your config's [agents]; values are skill
+# names or globs (* ? [a-z]). Agents not configured on a machine are skipped there.
+# ` + "`sync --prune`" + ` also uninstalls managed skills no longer listed.
+# Example:
+#   claude = ["code-review", "obsidian-*"]
+#   agents = ["*"]
+[assignments]
+
+# Per-skill metadata, written by sapato (` + "`sapato compat`, the TUI `c` key," + `
+# the NEW wizard). You can edit it by hand too.
+# compatible: agent names this skill works with; no table = every agent.
+# Example:
+#   [skills.code-review]
+#   compatible = ["claude"]
+`
+
 // Init creates a vault at path. It fails if a vault manifest already exists.
 func Init(path string) error {
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -92,7 +115,7 @@ func Init(path string) error {
 	if err != nil {
 		return fmt.Errorf("init vault %s: %w", path, err)
 	}
-	if _, err := fmt.Fprintf(f, "format = %d\n", formatV1); err != nil {
+	if _, err := f.WriteString(newManifest); err != nil {
 		f.Close()
 		return fmt.Errorf("init vault %s: %w", path, err)
 	}

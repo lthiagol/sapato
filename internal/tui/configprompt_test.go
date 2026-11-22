@@ -96,6 +96,13 @@ func TestFirstLaunchPromptYesWritesLoadableFile(t *testing.T) {
 	if last := m.lastNote(); last.title != "config created" || last.message != path || last.kind != noteSuccess {
 		t.Errorf("note = %+v, want config created at %s", last, path)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != config.DefaultText() {
+		t.Errorf("written config differs from config default:\n%s", data)
+	}
 	got, err := config.Load(path, home)
 	if err != nil {
 		t.Fatalf("Load(written) error = %v", err)

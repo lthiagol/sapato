@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -66,7 +67,7 @@ func TestCompatCommand(t *testing.T) {
 			args:    []string{"--dry-run", "compat", "code-review", "agents"},
 			wantOut: "would compat code-review: agents",
 			check: func(t *testing.T) {
-				if strings.Contains(read(), "agents") {
+				if !hasLine(read(), `compatible = ["claude", "cursor"]`) {
 					t.Errorf("dry run changed sapato.toml: %q", read())
 				}
 			},
@@ -76,7 +77,7 @@ func TestCompatCommand(t *testing.T) {
 			args:    []string{"compat", "code-review", "--all"},
 			wantOut: "compat code-review: all agents",
 			check: func(t *testing.T) {
-				if strings.Contains(read(), "skills.code-review") {
+				if hasLine(read(), "[skills.code-review]") {
 					t.Errorf("sapato.toml still has the table: %q", read())
 				}
 			},
@@ -125,6 +126,12 @@ func TestCompatCommand(t *testing.T) {
 	}
 }
 
+// hasLine reports whether data has a line equal to line. Comments that mention the
+// same text do not count.
+func hasLine(data, line string) bool {
+	return slices.Contains(strings.Split(data, "\n"), line)
+}
+
 func TestInstallAllSkipsIncompatible(t *testing.T) {
 	cfgPath, _ := compatSetup(t)
 	if code, _, stderr := runCLI("--config", cfgPath, "compat", "code-review", "claude"); code != 0 {
@@ -164,6 +171,36 @@ func TestStatusJSONCompatible(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status --json lacks %q in:\n%s", want, out)
+		}
+	}
+}
+
+// TestInitManifestKeepsCommentsAfterCompat checks that a compat write leaves the
+// comment lines of the manifest that sapato init wrote.
+func TestInitManifestKeepsCommentsAfterCompat(t *testing.T) {
+	cfgPath, vaultDir := setup(t)
+	if code, _, stderr := runCLI("--config", cfgPath, "init"); code != 0 {
+		t.Fatalf("init exit code = %d, stderr %q", code, stderr)
+	}
+	writeSkill(t, vaultDir, "code-review", "---\nname: code-review\ndescription: Reviews code.\n---\n")
+	manifest := filepath.Join(vaultDir, "sapato.toml")
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := runCLI("--config", cfgPath, "compat", "code-review", "claude"); code != 0 {
+		t.Fatalf("compat exit code = %d, stderr %q", code, stderr)
+	}
+	after, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "[skills.code-review]\ncompatible = [\"claude\"]\n") {
+		t.Fatalf("compat did not write its table:\n%s", after)
+	}
+	for _, line := range strings.Split(string(before), "\n") {
+		if strings.HasPrefix(line, "#") && !strings.Contains(string(after), line+"\n") {
+			t.Errorf("compat dropped comment %q", line)
 		}
 	}
 }

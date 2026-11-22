@@ -119,18 +119,49 @@ func TestExists(t *testing.T) {
 	}
 }
 
+// manifestSpec is the new-vault manifest of spec §3.1 byte for byte. A raw string
+// cannot hold a backtick, so the spec's backticks are ^ here.
+var manifestSpec = `# Sapato vault manifest. Portable: no machine-specific paths here.
+
+# Vault format version. Only 1 is supported.
+format = 1
+
+# Desired installs, applied by ^sapato sync^.
+# One line per agent name from your config's [agents]; values are skill
+# names or globs (* ? [a-z]). Agents not configured on a machine are skipped there.
+# ^sync --prune^ also uninstalls managed skills no longer listed.
+# Example:
+#   claude = ["code-review", "obsidian-*"]
+#   agents = ["*"]
+[assignments]
+
+# Per-skill metadata, written by sapato (^sapato compat^, the TUI ^c^ key,
+# the NEW wizard). You can edit it by hand too.
+# compatible: agent names this skill works with; no table = every agent.
+# Example:
+#   [skills.code-review]
+#   compatible = ["claude"]
+`
+
 func TestInit(t *testing.T) {
 	t.Run("creates vault", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "new", "vault")
 		if err := Init(dir); err != nil {
 			t.Fatalf("Init() error = %v", err)
 		}
+		data, err := os.ReadFile(filepath.Join(dir, "sapato.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := strings.ReplaceAll(manifestSpec, "^", "`"); string(data) != want {
+			t.Errorf("manifest = %q, want spec §3.1 %q", data, want)
+		}
 		v, err := Open(dir)
 		if err != nil {
 			t.Fatalf("Open() after Init error = %v", err)
 		}
-		if v.Assignments != nil {
-			t.Errorf("Assignments = %v, want nil", v.Assignments)
+		if len(v.Assignments) != 0 {
+			t.Errorf("Assignments = %v, want none", v.Assignments)
 		}
 		info, err := os.Stat(filepath.Join(dir, "skills"))
 		if err != nil || !info.IsDir() {

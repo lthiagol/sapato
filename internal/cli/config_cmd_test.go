@@ -63,7 +63,7 @@ func TestConfigInit(t *testing.T) {
 		{name: "writes the starter", wantCode: 0, wantFile: true, wantOut: "wrote config "},
 		{name: "refuses an existing file", existing: "vault = \"/keep\"\n", wantCode: 1, wantErr: "already exists", wantFile: true},
 		{name: "force overwrites", existing: "vault = \"/keep\"\n", args: []string{"--force"}, wantCode: 0, wantFile: true, wantOut: "wrote config "},
-		{name: "dry-run writes nothing", args: []string{"--dry-run"}, wantCode: 0, wantFile: false, wantOut: "# sapato config."},
+		{name: "dry-run writes nothing", args: []string{"--dry-run"}, wantCode: 0, wantFile: false, wantOut: "# Sapato config."},
 		{name: "extra args are usage error", args: []string{"x"}, wantCode: 2, wantErr: "unknown command"},
 	}
 	for _, tt := range tests {
@@ -225,5 +225,41 @@ func TestConfigInitDryRunPrintsValidTOML(t *testing.T) {
 	}
 	if got.UI.Theme != "catppuccin-mocha" || got.UI.Icons != "nerd" {
 		t.Errorf("ui = %+v, want defaults", got.UI)
+	}
+}
+
+func TestConfigDefaultPrintsWithoutWriting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	code, stdout, stderr := runCLI("--config", path, "config", "default")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr %q", code, stderr)
+	}
+	if stdout != config.DefaultText() {
+		t.Errorf("stdout differs from the default text:\n%s", stdout)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("config default wrote %s (stat error %v)", path, err)
+	}
+}
+
+func TestConfigInitWritesSameBytesAsDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_, defaultOut, _ := runCLI("config", "default")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if code, _, stderr := runCLI("--config", path, "config", "init"); code != 0 {
+		t.Fatalf("config init exit code = %d, stderr %q", code, stderr)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != defaultOut {
+		t.Errorf("config init wrote %q, want the bytes of config default", written)
+	}
+	_, dryOut, _ := runCLI("--dry-run", "config", "init")
+	if dryOut != defaultOut {
+		t.Errorf("--dry-run printed %q, want the bytes of config default", dryOut)
 	}
 }

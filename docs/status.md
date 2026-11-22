@@ -24,6 +24,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 - **Adopt (task 21):** identical copies in other agents become synced too. `adopt <skill…> -a <id>` takes globs over that agent's unmanaged skills. The ADOPT dialog groups copies by agent, with a filter row, `space` marks, a `conflict` tag and one summary notification.
 - **Guide (task 22):** `sapato guide` prints a generated `SKILL.md` for this vault and its configured agents. `--install` writes it as the vault skill `sapato`: identical content is a no-op, different content needs `--force`.
 - **Bottom bar v3 (task 23):** the counts ride the bar's rule, and one left-aligned hint row carries the actions, a `│` and the dimmer globals. The globals wrap, then drop `t theme` and `L log`, when the row is narrow.
+- **Default config and vault manifest (task 24):** `sapato config default` prints the §2.1 text, which `config init`, `--dry-run` and the first-launch prompt write too. `sapato init` writes the §3.1 manifest.
 
 ## Open nits (optional, from the last review)
 
