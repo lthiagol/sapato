@@ -203,12 +203,12 @@ func TestBarShowsTheFilterInput(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
 	m := sized(t, loaded(t, b, []config.Agent{claude}), 80, 24)
 	m = press(t, m, "/", "a")
-	first, second := barRows(m.View())
-	if plain := sgr.ReplaceAllString(first, ""); !strings.Contains(plain, "/ a") || !strings.Contains(plain, "enter apply · esc clear") {
-		t.Errorf("filter bar row 1 = %q, want the input, then its hints", plain)
+	bar := plainBar(m, m.View())
+	if !strings.Contains(bar[1], "/ a") || !strings.Contains(bar[1], "enter apply · esc clear") {
+		t.Errorf("filter hint row = %q, want the input, then its hints", bar[1])
 	}
-	if plain := sgr.ReplaceAllString(second, ""); !strings.Contains(plain, "1 skills · 0 invalid · 0 need attention") {
-		t.Errorf("filter bar row 2 = %q, want the counts", plain)
+	if !strings.Contains(bar[0], "1 skills · 0 invalid · 0 need attention") {
+		t.Errorf("filter bar rule = %q, want the counts", bar[0])
 	}
 }
 

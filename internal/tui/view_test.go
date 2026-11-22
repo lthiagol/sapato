@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"sapato/internal/config"
 	"sapato/internal/ops"
@@ -174,38 +175,46 @@ func TestEveryScreenFitsTheTerminal(t *testing.T) {
 	}
 }
 
-// barRows returns the two rows of the bar at the foot of view.
-func barRows(view string) (first, second string) {
+// barLines returns the bar at the foot of view: its rule, then its hint rows.
+func barLines(m Model, view string) []string {
 	lines := strings.Split(view, "\n")
-	return lines[len(lines)-2], lines[len(lines)-1]
+	return lines[len(lines)-len(m.bar()):]
+}
+
+// plainBar is barLines with the color codes removed.
+func plainBar(m Model, view string) []string {
+	bar := barLines(m, view)
+	for i, l := range bar {
+		bar[i] = sgr.ReplaceAllString(l, "")
+	}
+	return bar
 }
 
 // powerlineGlyphs are the private-use separators of the nerd set (spec §9.5 drops them).
-const powerlineGlyphs = "\ue0b0\ue0b1\ue0b2\ue0b3"
+const powerlineGlyphs = ""
 
 // barNames are the mode names the bar used to show as badges. The bar shows none.
 var barNames = []string{"MAIN", "SKILL", "FILTER", "CONFIRM", "DIFF", "HELP", "ADOPT", "NEW", "IMPORT", "EXPORT", "THEME", "LOG"}
 
-func TestBarFitsTwoRowsAt80(t *testing.T) {
+// TestBarAt80 checks the bar of the grid at 80 columns: the counts ride the rule, the
+// action hints fit one row, and the globals wrap to a second.
+func TestBarAt80(t *testing.T) {
 	m, _ := layoutModel(t, 80, 24)
-	first, second := barRows(m.View())
-	for _, row := range []string{first, second} {
-		if w := lipgloss.Width(row); w != 80 {
-			t.Errorf("bar row is %d columns, want 80: %q", w, row)
-		}
+	bar := plainBar(m, m.View())
+	want := []string{
+		"───────────────────────────────────── 4 skills · 0 invalid · 3 need attention ──",
+		" enter open · / filter · r refresh · a adopt · n new · I import",
+		" ↑↓/jk move · t theme · L log · ? help · q quit",
 	}
-	if plain := sgr.ReplaceAllString(first, ""); !strings.Contains(plain, "enter open · / filter") {
-		t.Errorf("first bar row lacks the action hints: %q", plain)
-	}
-	if plain := sgr.ReplaceAllString(second, ""); !strings.Contains(plain, "↑↓/jk move") || !strings.Contains(plain, "3 need attention") {
-		t.Errorf("second bar row lacks the global hints or the counts: %q", plain)
+	if strings.Join(bar, "\n") != strings.Join(want, "\n") {
+		t.Errorf("bar at 80 columns:\n%s\nwant:\n%s", strings.Join(bar, "\n"), strings.Join(want, "\n"))
 	}
 }
 
-// TestBarIsRuleAndTwoRowsOnEveryScreen checks the bar on every screen and overlay at
-// each size: a rule, then two rows, each as wide as the terminal, with the counts in
-// row 2, no mode badge and no powerline glyph.
-func TestBarIsRuleAndTwoRowsOnEveryScreen(t *testing.T) {
+// TestBarIsSummaryRuleAndHintRowsOnEveryScreen checks the bar on every screen and
+// overlay at each size: the rule with the counts, then one or two hint rows, each no
+// wider than the terminal, with no mode badge and no powerline glyph.
+func TestBarIsSummaryRuleAndHintRowsOnEveryScreen(t *testing.T) {
 	for _, size := range layoutSizes {
 		for _, sc := range allScreens {
 			t.Run(fmt.Sprintf("%s at %dx%d", sc.name, size[0], size[1]), func(t *testing.T) {
@@ -213,22 +222,24 @@ func TestBarIsRuleAndTwoRowsOnEveryScreen(t *testing.T) {
 				b.changes = []ops.FileChange{{Rel: "SKILL.md", Kind: ops.ChangeChanged, Diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"}}
 				m = press(t, m, sc.steps...)
 				view := m.View()
-				lines := strings.Split(view, "\n")
-				if rule := lines[len(lines)-3]; rule != m.rule() {
-					t.Errorf("line above the bar is not the rule: %q", rule)
+				bar := plainBar(m, view)
+				if n := len(bar); n != 2 && n != 3 {
+					t.Fatalf("bar is %d lines, want 2 or 3:\n%s", n, view)
 				}
-				first, second := barRows(view)
-				for _, row := range []string{first, second} {
-					if w := lipgloss.Width(row); w != size[0] {
-						t.Errorf("bar row is %d columns, want %d: %q", w, size[0], row)
+				if want := sgr.ReplaceAllString(m.summaryRule(), ""); bar[0] != want || !strings.Contains(bar[0], "skills ·") {
+					t.Errorf("bar rule = %q, want the counts in it: %q", bar[0], want)
+				}
+				if w := lipgloss.Width(bar[0]); w != size[0] {
+					t.Errorf("bar rule is %d columns, want %d", w, size[0])
+				}
+				for _, row := range bar[1:] {
+					if w := lipgloss.Width(row); w > size[0] {
+						t.Errorf("hint row is %d columns, want at most %d: %q", w, size[0], row)
 					}
 				}
-				if plain := sgr.ReplaceAllString(second, ""); !strings.Contains(plain, "skills ·") {
-					t.Errorf("second bar row lacks the counts: %q", plain)
-				}
 				for _, name := range barNames {
-					if strings.Contains(sgr.ReplaceAllString(first+second, ""), name) {
-						t.Errorf("bar shows the mode name %q: %q / %q", name, first, second)
+					if strings.Contains(strings.Join(bar, "\n"), name) {
+						t.Errorf("bar shows the mode name %q: %q", name, bar)
 					}
 				}
 				if strings.ContainsAny(view, powerlineGlyphs) {
@@ -239,34 +250,203 @@ func TestBarIsRuleAndTwoRowsOnEveryScreen(t *testing.T) {
 	}
 }
 
-// TestActionHintsAreCentered checks that row 1 centers the action hints when they fit:
-// the margins on either side differ by at most one column.
-func TestActionHintsAreCentered(t *testing.T) {
+// colored makes lipgloss write color codes for the rest of t, as a terminal does, and
+// gives m its styles in color. The test models are built without color, which hides
+// the styles.
+func colored(t *testing.T, m Model) Model {
+	t.Helper()
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+	m.styles = newStyles(m.styles.th, false)
+	return m
+}
+
+// TestSummaryRidesTheBarRule checks the counts at 120 columns: right-aligned in the
+// bar's rule, with two rule glyphs at the edge, and each part in its own style.
+func TestSummaryRidesTheBarRule(t *testing.T) {
+	m, _ := layoutModel(t, 120, 40)
+	m = colored(t, m)
+	m.vaultSkills = map[string]vault.Skill{"hand-made": {Name: "hand-made"}}
+	rule := barLines(m, m.View())[0]
+	plain := sgr.ReplaceAllString(rule, "")
+	if want := " 4 skills · 1 invalid · 3 need attention ──"; !strings.HasSuffix(plain, want) {
+		t.Errorf("rule = %q, want it to end with %q", plain, want)
+	}
+	if !strings.HasPrefix(plain, m.icons.Rule) || lipgloss.Width(plain) != 120 {
+		t.Errorf("rule = %q, want rule glyphs from the left edge, 120 columns wide", plain)
+	}
+	for _, part := range []string{
+		m.styles.text.Render("4 skills"),
+		m.styles.fail.Render("1 invalid"),
+		m.styles.warn.Render("3 need attention"),
+	} {
+		if !strings.Contains(rule, part) {
+			t.Errorf("rule lacks the part %q in its style", part)
+		}
+	}
+	m, _ = layoutModel(t, 120, 40)
+	m = colored(t, m)
+	if rule := barLines(m, m.View())[0]; !strings.Contains(rule, m.styles.dim.Render("0 invalid")) {
+		t.Errorf("zero invalid is not dimmed in the rule: %q", rule)
+	}
+}
+
+// TestSummaryDropsFromTheRight checks the counts at narrow widths: attention drops
+// first, then invalid, then the skill count, and the rule is plain when even that
+// does not fit with four rule glyphs.
+func TestSummaryDropsFromTheRight(t *testing.T) {
+	tests := []struct {
+		w    int
+		want string // the end of the rule, or "" for a plain rule
+	}{
+		{w: 120, want: " 4 skills · 0 invalid · 3 need attention ──"},
+		{w: 45, want: " 4 skills · 0 invalid · 3 need attention ──"},
+		{w: 44, want: " 4 skills · 0 invalid ──"},
+		{w: 26, want: " 4 skills · 0 invalid ──"},
+		{w: 25, want: " 4 skills ──"},
+		{w: 14, want: " 4 skills ──"},
+		{w: 13, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d columns", tt.w), func(t *testing.T) {
+			m, _ := layoutModel(t, tt.w, 24)
+			rule := sgr.ReplaceAllString(barLines(m, m.View())[0], "")
+			if lipgloss.Width(rule) != tt.w {
+				t.Errorf("rule is %d columns, want %d: %q", lipgloss.Width(rule), tt.w, rule)
+			}
+			if tt.want == "" {
+				if plain := strings.Repeat(m.icons.Rule, tt.w); rule != plain {
+					t.Errorf("rule = %q, want a plain rule", rule)
+				}
+				return
+			}
+			if !strings.HasSuffix(rule, tt.want) {
+				t.Errorf("rule = %q, want it to end with %q", rule, tt.want)
+			}
+		})
+	}
+}
+
+// TestHintRowIsLeftAlignedWithDimGlobals checks the hint row at 200 columns: one column
+// of pad, the action hints, the │ divider, then the globals in the dimmer style.
+func TestHintRowIsLeftAlignedWithDimGlobals(t *testing.T) {
+	m, _ := layoutModel(t, 200, 60)
+	m = colored(t, m)
+	view := m.View()
+	bar := barLines(m, view)
+	if len(bar) != 2 {
+		t.Fatalf("bar is %d lines, want 2 at 200 columns", len(bar))
+	}
+	row := bar[1]
+	plain := sgr.ReplaceAllString(row, "")
+	want := " enter open · / filter · r refresh · a adopt · n new · I import │ ↑↓/jk move · t theme · L log · ? help · q quit"
+	if plain != want {
+		t.Errorf("hint row = %q, want %q", plain, want)
+	}
+	for _, part := range []string{
+		m.styles.hintKey.Render("enter") + " " + m.styles.subtext.Render("open"),
+		m.styles.dim.Render(" │ "),
+		m.styles.subtext.Render("↑↓/jk") + " " + m.styles.dim.Render("move"),
+	} {
+		if !strings.Contains(row, part) {
+			t.Errorf("hint row lacks the styled part %q", part)
+		}
+	}
+}
+
+// TestHintRowsWrapThenDrop checks the hint rows where the globals wrap to a second row,
+// and where t theme, then L log, drop out of it.
+func TestHintRowsWrapThenDrop(t *testing.T) {
+	tests := []struct {
+		name  string
+		steps []string
+		w     int
+		want  []string // the hint rows, without their color codes
+	}{
+		{name: "grid at 120 keeps one row", w: 120, want: []string{" enter open · / filter · r refresh · a adopt · n new · I import │ ↑↓/jk move · t theme · L log · ? help · q quit"}},
+		{name: "grid at 80 wraps the globals", w: 80, want: []string{" enter open · / filter · r refresh · a adopt · n new · I import", " ↑↓/jk move · t theme · L log · ? help · q quit"}},
+		{name: "grid at 40 drops t theme", w: 40, want: []string{" enter open · / filter · r refresh · a …", " ↑↓/jk move · L log · ? help · q quit"}},
+		{name: "grid at 30 drops t theme and L log", w: 30, want: []string{" enter open · / filter · r re…", " ↑↓/jk move · ? help · q quit"}},
+		{name: "skill screen at 120 wraps the globals", steps: []string{"enter"}, w: 120, want: []string{" space mark · i install · u uninstall · U update · d diff · a adopt · A install all · c compat · x export · D remove", " ↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit"}},
+		{name: "skill screen at 80 keeps every global", steps: []string{"enter"}, w: 80, want: []string{" space mark · i install · u uninstall · U update · d diff · a adopt · A install…", " ↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit"}},
+		{name: "skill screen at 60 drops t theme and L log", steps: []string{"enter"}, w: 60, want: []string{" space mark · i install · u uninstall · U update · d diff ·…", " ↑↓/jk move · pgup/pgdn page · esc back · ? help · q quit"}},
+		{name: "action alone too wide at 30", steps: []string{"enter"}, w: 30, want: []string{" space mark · i install · u u…", " ↑↓/jk move · pgup/pgdn page …"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := layoutModel(t, tt.w, 24)
+			m = press(t, m, tt.steps...)
+			rows := plainBar(m, m.View())[1:]
+			if strings.Join(rows, "\n") != strings.Join(tt.want, "\n") {
+				t.Errorf("hint rows:\n%s\nwant:\n%s", strings.Join(rows, "\n"), strings.Join(tt.want, "\n"))
+			}
+		})
+	}
+}
+
+// TestFilterAndConfirmReplaceOnlyTheActionPart checks that FILTER and a confirm show
+// their own action hints in place of the screen's, with no global hints.
+func TestFilterAndConfirmReplaceOnlyTheActionPart(t *testing.T) {
+	m, _ := layoutModel(t, 80, 24)
+	m = press(t, m, "/", "o")
+	if bar := plainBar(m, m.View()); len(bar) != 2 || bar[1] != " / o · enter apply · esc clear" {
+		t.Errorf("filter hint row = %q, want the input then its hints, no globals", bar)
+	}
+	m, _ = layoutModel(t, 80, 24)
+	m = press(t, m, "enter", "u")
+	if bar := plainBar(m, m.View()); len(bar) != 2 || bar[1] != " y yes · n no" {
+		t.Errorf("confirm hint row = %q, want y yes · n no", bar)
+	}
+}
+
+// TestActionHintsAreLeftAligned checks that the action hints start after one column of pad, at
+// each width, on the grid and the skill screen.
+func TestActionHintsAreLeftAligned(t *testing.T) {
 	for _, w := range []int{80, 120, 200} {
 		for _, sc := range []struct {
 			name  string
 			steps []string
-		}{{name: "main grid"}, {name: "skill screen", steps: []string{"enter"}}} {
+			first string
+		}{{name: "main grid", first: " enter open"}, {name: "skill screen", steps: []string{"enter"}, first: " space mark"}} {
 			t.Run(fmt.Sprintf("%s at %d", sc.name, w), func(t *testing.T) {
 				m, _ := layoutModel(t, w, 24)
 				m = press(t, m, sc.steps...)
-				first, _ := barRows(m.View())
-				plain := sgr.ReplaceAllString(first, "")
-				if strings.Contains(plain, "…") {
-					t.Skip("the hints are cut at this width")
-				}
-				left := lipgloss.Width(plain) - lipgloss.Width(strings.TrimLeft(plain, " "))
-				right := lipgloss.Width(plain) - lipgloss.Width(strings.TrimRight(plain, " "))
-				if d := left - right; d < -1 || d > 1 {
-					t.Errorf("row 1 margins are %d and %d, want them within one column: %q", left, right, plain)
+				row := plainBar(m, m.View())[1]
+				if !strings.HasPrefix(row, sc.first) || strings.HasPrefix(row, "  ") {
+					t.Errorf("hint row = %q, want it to start with one pad column and %q", row, sc.first)
 				}
 			})
 		}
 	}
 }
 
-// TestZeroCountsAreDimmed checks that a count of zero takes the dim style, and a
-// count above zero takes its own.
+// TestBodyHeightFollowsTheBarLines checks that the body takes the rows the bar leaves:
+// the bar is two lines on a wide grid and three when its globals wrap.
+func TestBodyHeightFollowsTheBarLines(t *testing.T) {
+	tests := []struct {
+		w, h, bar int
+	}{
+		{w: 200, h: 60, bar: 2},
+		{w: 60, h: 20, bar: 3},
+		{w: 120, h: 40, bar: 2},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%dx%d", tt.w, tt.h), func(t *testing.T) {
+			m, _ := layoutModel(t, tt.w, tt.h)
+			if n := len(m.bar()); n != tt.bar {
+				t.Fatalf("bar is %d lines, want %d", n, tt.bar)
+			}
+			if want := tt.h - m.headerHeight() - 1 - tt.bar; m.bodyHeight() != want {
+				t.Errorf("body height = %d, want %d", m.bodyHeight(), want)
+			}
+			if lines := strings.Split(m.View(), "\n"); len(lines) != tt.h {
+				t.Errorf("view has %d lines, want %d", len(lines), tt.h)
+			}
+		})
+	}
+}
+
 func TestZeroCountsAreDimmed(t *testing.T) {
 	th, _ := testLook(t)
 	m := testModel(&fakeBackend{}, nil, th, icons.Set{}, false)
@@ -275,42 +455,6 @@ func TestZeroCountsAreDimmed(t *testing.T) {
 	}
 	if got := m.countStyle(2, m.styles.fail).GetForeground(); got != th.Red {
 		t.Errorf("two invalid is %v, want the Red role %v", got, th.Red)
-	}
-}
-
-// TestGlobalKeysShareRowTwoWithTheCounts checks that row 2 keeps the counts whole at
-// the right, and cuts the global hints at the left when the row is narrow.
-func TestGlobalKeysShareRowTwoWithTheCounts(t *testing.T) {
-	tests := []struct {
-		name  string
-		steps []string
-		w     int
-		want  string // the start of the global hints
-		cut   bool   // whether the global hints are cut with an ellipsis
-	}{
-		{name: "main grid at 80", w: 80, want: " ↑↓/jk move · t theme", cut: true},
-		{name: "main grid at 120", w: 120, want: " ↑↓/jk move · t theme · L log · ? help · q quit", cut: false},
-		{name: "skill screen at 80", steps: []string{"enter"}, w: 80, want: " ↑↓/jk move · pgup/pgdn page", cut: true},
-		{name: "skill screen at 120", steps: []string{"enter"}, w: 120, want: " ↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit", cut: false},
-		{name: "main grid at 60", w: 60, want: " ↑↓/jk move", cut: true},
-		{name: "skill screen at 60", steps: []string{"enter"}, w: 60, want: " ↑↓/jk move", cut: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m, _ := layoutModel(t, tt.w, 24)
-			m = press(t, m, tt.steps...)
-			_, second := barRows(m.View())
-			plain := sgr.ReplaceAllString(second, "")
-			if !strings.HasPrefix(plain, tt.want) && !tt.cut {
-				t.Errorf("second bar row = %q, want it to start with %q", plain, tt.want)
-			}
-			if !strings.HasSuffix(plain, "4 skills · 0 invalid · 3 need attention ") {
-				t.Errorf("second bar row = %q, want the counts whole at its right edge", plain)
-			}
-			if got := strings.Contains(plain, "…"); got != tt.cut {
-				t.Errorf("second bar row cut = %t, want %t: %q", got, tt.cut, plain)
-			}
-		})
 	}
 }
 
@@ -328,8 +472,8 @@ func TestNerdBarHasNoSeparators(t *testing.T) {
 	if strings.ContainsAny(view, powerlineGlyphs) {
 		t.Errorf("nerd bar has a powerline glyph:\n%s", view)
 	}
-	if first, second := barRows(view); lipgloss.Width(first) != 80 || lipgloss.Width(second) != 80 {
-		t.Errorf("nerd bar rows are %d and %d columns, want 80", lipgloss.Width(first), lipgloss.Width(second))
+	if bar := barLines(m, view); lipgloss.Width(bar[0]) != 80 {
+		t.Errorf("nerd bar rule is %d columns, want 80", lipgloss.Width(bar[0]))
 	}
 }
 
@@ -394,20 +538,20 @@ func TestBodiesFitBeforeTheFrameCutsThem(t *testing.T) {
 
 func TestBarCountsSkillsOnTheMainScreen(t *testing.T) {
 	m, _ := layoutModel(t, 200, 60)
-	if _, second := barRows(m.View()); !strings.Contains(sgr.ReplaceAllString(second, ""), "4 skills · 0 invalid · 3 need attention") {
-		t.Errorf("bar lacks the counts: %q", second)
+	if rule := plainBar(m, m.View())[0]; !strings.Contains(rule, "4 skills · 0 invalid · 3 need attention") {
+		t.Errorf("bar rule lacks the counts: %q", rule)
 	}
 }
 
 func TestBarShowsTheSkillScreensActions(t *testing.T) {
 	m, _ := layoutModel(t, 200, 60)
 	m = press(t, m, "enter")
-	first, second := barRows(m.View())
-	if plain := sgr.ReplaceAllString(first, ""); !strings.Contains(plain, "i install · u uninstall") {
-		t.Errorf("skill bar row 1 = %q, want the action hints", plain)
+	bar := plainBar(m, m.View())
+	if !strings.Contains(bar[1], "i install · u uninstall") {
+		t.Errorf("skill hint row = %q, want the action hints", bar[1])
 	}
-	if plain := sgr.ReplaceAllString(second, ""); !strings.Contains(plain, "esc back") {
-		t.Errorf("skill bar row 2 = %q, want esc back", plain)
+	if !strings.Contains(bar[1], "esc back") {
+		t.Errorf("skill hint row = %q, want esc back", bar[1])
 	}
 }
 
@@ -517,11 +661,11 @@ func TestNoColorSelectsWithReverseVideo(t *testing.T) {
 func TestBarShowsNoMessage(t *testing.T) {
 	m, _ := layoutModel(t, 80, 24)
 	m.notify(noteSuccess, "installed", "install alpha in claude")
-	first, second := barRows(m.View())
-	if strings.Contains(sgr.ReplaceAllString(first+second, ""), "install alpha") {
-		t.Errorf("bar shows the message: %q / %q", first, second)
+	bar := plainBar(m, m.View())
+	if strings.Contains(strings.Join(bar, "\n"), "install alpha") {
+		t.Errorf("bar shows the message: %q", bar)
 	}
-	if !strings.Contains(sgr.ReplaceAllString(second, ""), "4 skills · 0 invalid · 3 need attention") {
-		t.Errorf("bar lacks the counts: %q", second)
+	if !strings.Contains(bar[0], "4 skills · 0 invalid · 3 need attention") {
+		t.Errorf("bar lacks the counts: %q", bar[0])
 	}
 }

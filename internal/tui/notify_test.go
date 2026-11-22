@@ -67,6 +67,23 @@ func lineIndex(lines []string, s string) int {
 	return -1
 }
 
+// TestToastSitsDirectlyAboveATwoLineBar checks that a notification stays on the line
+// above the bar when the bar is two lines: the rule and one hint row.
+func TestToastSitsDirectlyAboveATwoLineBar(t *testing.T) {
+	m, _ := clockModel(t, 200, 60)
+	m.notify(noteSuccess, "installed", "install alpha in claude")
+	lines := plainLines(m.View())
+	if n := len(m.bar()); n != 2 {
+		t.Fatalf("bar is %d lines, want 2 at 200 columns", n)
+	}
+	if above := lines[len(lines)-3]; !strings.Contains(above, "╰") {
+		t.Errorf("line above the bar lacks the toast's bottom border: %q", above)
+	}
+	if rule := lines[len(lines)-2]; !strings.Contains(rule, "skills ·") {
+		t.Errorf("bar rule = %q, want the counts in it", rule)
+	}
+}
+
 func TestToastSitsBottomRightAboveTheBar(t *testing.T) {
 	m, _ := clockModel(t, 80, 24)
 	before := plainLines(m.View())
@@ -243,8 +260,8 @@ func TestLogScrollsWithinTheEntriesAndCloses(t *testing.T) {
 		t.Errorf("LOG opens at the newest entry; want note 29 shown and note 00 scrolled off:\n%s", view)
 	}
 	m = press(t, m, "g")
-	if view := m.View(); !strings.Contains(view, "note 00") || !strings.Contains(view, "note 16") || strings.Contains(view, "note 17") {
-		t.Errorf("after g: want note 00 to note 16 shown:\n%s", view)
+	if view := m.View(); !strings.Contains(view, "note 00") || !strings.Contains(view, "note 17") || strings.Contains(view, "note 18") {
+		t.Errorf("after g: want note 00 to note 17 shown:\n%s", view)
 	}
 	m = press(t, m, "G")
 	if view := m.View(); !strings.Contains(view, "note 29") {

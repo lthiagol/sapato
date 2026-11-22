@@ -94,14 +94,14 @@ func (m Model) headerHeight() int {
 	return len(sapatoArt) + 1
 }
 
-// bodyHeight is the number of lines between the rule under the header and the
-// bar, which takes three: its rule and two rows. It is 0 before the terminal reports
-// its size.
+// bodyHeight is the number of lines between the rule under the header and the bar,
+// which takes two or three: its rule and one or two hint rows. It is 0 before the
+// terminal reports its size.
 func (m Model) bodyHeight() int {
 	if m.height == 0 {
 		return 0
 	}
-	return max(1, m.height-m.headerHeight()-4)
+	return max(1, m.height-m.headerHeight()-1-len(m.bar()))
 }
 
 // headerLines returns the header, centered: the art and tagline, or the one-line
@@ -320,65 +320,150 @@ func (m Model) screenHints() (own, global []key.Binding) {
 	return m.keys.mainHints(), m.keys.mainGlobals()
 }
 
-// bar is the bottom bar of spec §9.1: a full-width rule, then two rows. Row 1 holds
-// the action hints, centered. Row 2 holds the global hints at the left and the counts
-// at the right. The bar has no background.
+// bar is the bottom bar of spec §9.1: the rule carrying the counts, then the hint
+// row, or two when the globals wrap. The bar has no background.
 func (m Model) bar() []string {
 	own, global := m.barHints()
-	return []string{m.rule(), m.actionRow(own), m.globalRow(global)}
+	return append([]string{m.summaryRule()}, m.hintRows(own, global)...)
 }
 
-// actionRow is bar row 1: the action hints centered. While filtering it is the filter
+// summaryRule is the bar's rule with the counts right-aligned and two rule glyphs
+// after them. The counts drop from the right, attention first, then invalid. The rule
+// is plain when even the skill count does not fit with four rule glyphs.
+func (m Model) summaryRule() string {
+	if m.width == 0 {
+		return m.rule()
+	}
+	parts := m.summaryParts()
+	sep := m.styles.dim.Render(" · ")
+	for n := len(parts); n > 0; n-- {
+		sum := " " + strings.Join(parts[:n], sep) + " "
+		if lipgloss.Width(sum)+4 > m.width {
+			continue
+		}
+		lead := m.width - lipgloss.Width(sum) - 2
+		return m.styles.rule.Render(strings.Repeat(m.icons.Rule, lead)) + sum +
+			m.styles.rule.Render(strings.Repeat(m.icons.Rule, 2))
+	}
+	return m.rule()
+}
+
+// summaryParts are the counts of the bar's rule: the skills in Text, the invalid
+// ones in Red and the ones that need attention in Yellow.
+func (m Model) summaryParts() []string {
+	invalid, attention := m.tally()
+	return []string{
+		m.count(len(m.names), "skills", m.styles.text),
+		m.count(invalid, "invalid", m.styles.fail),
+		m.count(attention, "need attention", m.styles.warn),
+	}
+}
+
+// hintRows is the hint row of the bar, left-aligned after a one-column pad: the action
+// hints, ` │ `, then the global hints. When that is too wide the globals wrap to a
+// second row, and the action part is cut with an ellipsis if it is too wide alone.
+func (m Model) hintRows(own, global []key.Binding) []string {
+	action := m.actionText(own)
+	if len(global) == 0 {
+		return []string{m.cutRow(" " + action)}
+	}
+	if action == "" {
+		return []string{m.globalRow(global)}
+	}
+	row := " " + action + m.styles.dim.Render(" │ ") + m.globalText(global)
+	if m.fits(row) {
+		return []string{row}
+	}
+	return []string{m.cutRow(" " + action), m.globalRow(global)}
+}
+
+// globalRow is the global hints as a row of their own. It drops t theme, then L log,
+// until the row fits, and cuts it with an ellipsis when even that is too wide.
+func (m Model) globalRow(global []key.Binding) string {
+	var row string
+	for drop := 0; drop <= 2; drop++ {
+		row = " " + m.globalText(dropGlobals(global, drop))
+		if m.fits(row) {
+			return row
+		}
+	}
+	return m.cutRow(row)
+}
+
+// dropGlobals removes the global hints that go first when the row is narrow: at level
+// 1 the t theme hint, at level 2 also the L log hint.
+func dropGlobals(global []key.Binding, level int) []key.Binding {
+	var kept []key.Binding
+	for _, b := range global {
+		switch b.Help().Key {
+		case "t":
+			if level >= 1 {
+				continue
+			}
+		case "L":
+			if level >= 2 {
+				continue
+			}
+		}
+		kept = append(kept, b)
+	}
+	return kept
+}
+
+// actionText is the action part of the hint row. While filtering it is the filter
 // input followed by the hints.
-func (m Model) actionRow(own []key.Binding) string {
+func (m Model) actionText(own []key.Binding) string {
 	text := m.hintText(own)
 	if m.mode == modeFilter {
-		text = m.filter.View() + m.styles.dim.Render(" · ") + text
+		sep := " · "
+		// At the end of the input the view already ends in the cursor cell, a space.
+		if m.filter.Position() == len([]rune(m.filter.Value())) {
+			sep = "· "
+		}
+		text = m.filter.View() + m.styles.dim.Render(sep) + text
 	}
-	w := m.barWidth(lipgloss.Width(text))
-	left := max(0, (w-lipgloss.Width(text))/2)
-	return cutPad(strings.Repeat(" ", left)+text, w)
+	return text
 }
 
-// globalRow is bar row 2: the global hints one column in from the left, and the
-// counts one column in from the right. The hints give way when the row is narrow,
-// and the counts stay whole.
-func (m Model) globalRow(global []key.Binding) string {
-	text, sum := m.hintText(global), m.summary()
-	sumW := lipgloss.Width(sum)
-	w := m.barWidth(lipgloss.Width(text) + sumW + 3)
-	return " " + cutPad(text, max(0, w-sumW-3)) + " " + sum + " "
+// fits reports whether s is no wider than the bar's width. Before the first size
+// message everything fits.
+func (m Model) fits(s string) bool {
+	return lipgloss.Width(s) <= m.layoutWidth()
 }
 
-// barWidth is the width a bar row is fitted to. Before the first size message it is
-// the natural width of the row, so nothing is cut.
-func (m Model) barWidth(natural int) int {
-	if m.width == 0 {
-		return natural
-	}
-	return m.width
-}
-
-// cutPad cuts s to w columns, ending with an ellipsis when it had to cut, and pads it
-// to w. The cut keeps the color codes of s.
-func cutPad(s string, w int) string {
-	return pad(ansi.Truncate(s, w, "…"), w)
+// cutRow cuts a hint row to the width, ending with an ellipsis when it had to cut.
+// The cut keeps the color codes of s.
+func (m Model) cutRow(s string) string {
+	return ansi.Truncate(s, m.layoutWidth(), "…")
 }
 
 // hintText lists the bindings as hints: each key in Accent bold, its description in
 // Subtext, and the hints joined with Overlay dots.
 func (m Model) hintText(bindings []key.Binding) string {
+	return joinHints(bindings, m.styles.hintKey, m.styles.subtext, m.styles.dim)
+}
+
+// globalText lists the global hints one step dimmer than the action hints: each key
+// in Subtext, its description in Overlay, joined with Overlay dots.
+func (m Model) globalText(bindings []key.Binding) string {
+	return joinHints(bindings, m.styles.subtext, m.styles.dim, m.styles.dim)
+}
+
+// joinHints renders each binding as its key in keySt and its description in descSt,
+// joined with sepSt dots.
+func joinHints(bindings []key.Binding, keySt, descSt, sepSt lipgloss.Style) string {
 	parts := make([]string, 0, len(bindings))
 	for _, b := range bindings {
 		h := b.Help()
-		parts = append(parts, m.styles.hintKey.Render(h.Key)+" "+m.styles.subtext.Render(h.Desc))
+		parts = append(parts, keySt.Render(h.Key)+" "+descSt.Render(h.Desc))
 	}
-	return strings.Join(parts, m.styles.dim.Render(" · "))
+	return strings.Join(parts, sepSt.Render(" · "))
 }
 
-// barHints lists the bindings the bar shows for the current mode, as the action hints
-// of row 1 and the global hints of row 2. The modes where L opens LOG list it among
-// their globals. Text inputs have none, since L is typed there.
+// barHints lists the bindings the bar shows for the current mode: the action hints and
+// the global hints. The modes where L opens LOG list it among their globals. Text
+// inputs and confirms have no globals: L is typed in the first, and the second only
+// takes y or cancels.
 func (m Model) barHints() (own, global []key.Binding) {
 	switch m.mode {
 	case modeFilter:
@@ -412,16 +497,6 @@ func (m Model) barHints() (own, global []key.Binding) {
 		return []key.Binding{scrollHint}, []key.Binding{m.keys.closeView}
 	}
 	return m.screenHints()
-}
-
-// summary is the counts of bar row 2: the skills in Text, the invalid ones in Red,
-// and the ones that need attention in Yellow. A count of zero is dimmed.
-func (m Model) summary() string {
-	invalid, attention := m.tally()
-	sep := m.styles.dim.Render(" · ")
-	return m.count(len(m.names), "skills", m.styles.text) + sep +
-		m.count(invalid, "invalid", m.styles.fail) + sep +
-		m.count(attention, "need attention", m.styles.warn)
 }
 
 // count is n and its label in st, or in the dim style when n is zero.

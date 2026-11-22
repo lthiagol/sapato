@@ -370,23 +370,22 @@ func TestEllipsisFitsItsWidth(t *testing.T) {
 
 func TestBarRowOneCutsWithAnEllipsis(t *testing.T) {
 	m, _ := layoutModel(t, 40, 20)
-	first, _ := barRows(m.View())
-	plain := sgr.ReplaceAllString(first, "")
-	if w := lipgloss.Width(plain); w != 40 {
-		t.Errorf("row 1 is %d columns, want 40: %q", w, plain)
+	plain := plainBar(m, m.View())[1]
+	if w := lipgloss.Width(plain); w > 40 {
+		t.Errorf("hint row is %d columns, want at most 40: %q", w, plain)
 	}
 	if !strings.HasSuffix(strings.TrimRight(plain, " "), "…") {
-		t.Errorf("row 1 is not cut with an ellipsis: %q", plain)
+		t.Errorf("hint row is not cut with an ellipsis: %q", plain)
 	}
 	// The filter's input and hints fit in 40 columns, so they show whole.
 	m = press(t, m, "/", "a")
-	first, _ = barRows(m.View())
-	if plain := sgr.ReplaceAllString(first, ""); strings.Contains(plain, "…") || !strings.Contains(plain, "enter apply · esc clear") || lipgloss.Width(plain) != 40 {
-		t.Errorf("filtering row 1 = %q, want the input and its hints whole at 40 columns", plain)
+	bar := plainBar(m, m.View())
+	if strings.Contains(bar[1], "…") || !strings.Contains(bar[1], "enter apply · esc clear") || lipgloss.Width(bar[1]) > 40 {
+		t.Errorf("filtering hint row = %q, want the input and its hints whole at 40 columns", bar[1])
 	}
 }
 
-// TestLogHintOnTheModesThatOpenLog checks that row 2 lists L log in the modes that
+// TestLogHintOnTheModesThatOpenLog checks that the bar lists L log in the modes that
 // open LOG, and not in the modes where L is text.
 func TestLogHintOnTheModesThatOpenLog(t *testing.T) {
 	tests := []struct {
@@ -406,9 +405,9 @@ func TestLogHintOnTheModesThatOpenLog(t *testing.T) {
 			m, b := layoutModel(t, 120, 40)
 			b.changes = []ops.FileChange{{Rel: "SKILL.md", Kind: ops.ChangeChanged, Diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"}}
 			m = press(t, m, tt.steps...)
-			_, second := barRows(m.View())
-			if got := strings.Contains(sgr.ReplaceAllString(second, ""), "L log"); got != tt.wantLog {
-				t.Errorf("row 2 lists L log = %t, want %t: %q", got, tt.wantLog, sgr.ReplaceAllString(second, ""))
+			bar := strings.Join(plainBar(m, m.View()), "\n")
+			if got := strings.Contains(bar, "L log"); got != tt.wantLog {
+				t.Errorf("bar lists L log = %t, want %t: %q", got, tt.wantLog, bar)
 			}
 		})
 	}
