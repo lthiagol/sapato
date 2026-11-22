@@ -72,7 +72,17 @@ format = 1                      # required, integer; only 1 is supported
 [assignments]                   # optional; desired state used by `sync`
 claude = ["code-review", "obsidian-*"]   # skill names or globs (path.Match)
 agents = ["*"]
+
+[skills.code-review]            # optional; vault-side metadata for one skill, never written into SKILL.md
+compatible = ["claude"]         # agent names this skill works with; absent = compatible with every agent
 ```
+
+### Compatibility
+
+- A skill is compatible with every agent unless `sapato.toml` has `[skills.<name>] compatible = [...]`. An empty list is rejected on load (use the `remove` path instead: no entry = all).
+- Names in `compatible` match the agent name pattern (§2). They need not be configured on this machine (the vault is portable); `doctor` reports unknown ones as info.
+- sapato writes this table itself (`compat`, `remove`, imports with a manifest, the NEW wizard). A write edits only the lines of that skill's `[skills.<name>]` table: the old table (header through the line before the next table header or EOF) is removed, and the new one, if any, is appended at the end of the file. Every other byte of the file (comments, `[assignments]`, other skills) is kept. Writes are atomic (temp file + rename). Unknown keys inside `[skills.<name>]` are rejected on load.
+- `remove` deletes the skill's table. Removing the last compatible agent is not possible: setting compatibility to all agents deletes the table.
 
 ### Validation rules (a skill failing any rule is *invalid*)
 
@@ -127,7 +137,9 @@ For each (skill, agent) pair, over the union of vault skills and target dirs:
 | `unmanaged`  | in target, not in lock |
 | `missing`    | in lock, folder gone from target |
 
-`modified` takes precedence over `outdated`. Target subdirs starting with `.` are ignored.
+| `incompatible` | in vault, not in target, and the skill is not compatible with this agent (§3) — replaces `not-installed` and `invalid` for that pair |
+
+`modified` takes precedence over `outdated`. Target subdirs starting with `.` are ignored. Every status row also carries `compatible` (bool; `--json` includes it): an installed copy in an incompatible agent keeps its normal status with `compatible: false`.
 
 ## 7. Commands
 
@@ -143,15 +155,18 @@ Glob vs literal: a skill named literally that hits a hard refusal (invalid on in
 | `sapato init [path]` | create a vault (`sapato.toml` + `skills/`) at path or configured vault; fail if `sapato.toml` exists |
 | `sapato list` | list vault skills: name, version, hash (short), valid/invalid + reason |
 | `sapato status [skill…] [-a …]` | table of skill × agent status; `--json` |
-| `sapato install <skill…> -a …` | copy vault skill to target; record lock. Refuses if target folder exists and is `unmanaged` or `modified` unless `--force`. Invalid skills are never installed |
+| `sapato install <skill…> -a …` | copy vault skill to target; record lock. Refuses if target folder exists and is `unmanaged` or `modified` unless `--force`. Refuses an agent the skill is not compatible with (§3) unless `--force` (`<skill> in <agent>: incompatible`); with `--all`, or a glob, incompatible pairs are skipped and reported instead. Invalid skills are never installed |
+| `sapato compat <skill> [agent…]` | no agents: print the skill's compatibility (`all agents` or the list). With agents: set `compatible` to exactly that list. `--all`: compatible with every agent (deletes the table). Skill must be in the vault; agent names must match the name pattern; `--dry-run` prints the change |
+| `sapato guide [--install]` | print a generated `SKILL.md` (frontmatter `name: sapato`) that teaches an agent how to write skills for this vault: the resolved vault path, the folder layout, the validation rules (§3), compatibility metadata and the `compat` command, how to create (`new --name`, `new <file>`), import, install and check (`list`, `status`, `doctor`), and the configured agents in order. `--install` writes it as the vault skill `sapato` (refuses if `skills/sapato` exists with different content unless `--force`; identical content is a no-op). Never writes outside the vault |
 | `sapato uninstall <skill…> -a …` | remove managed skill folder + lock entry. Refuses `unmanaged` (never delete what we don't own) and `modified` unless `--force` |
 | `sapato update [skill…] [-a …]` | re-install every `outdated` skill (default: all skills, all agents). `modified` skipped unless `--force` (reported as skips, never call failures, even for literal names) |
 | `sapato diff <skill> -a <id>` | unified diff vault vs installed copy (file list + per-file text diff) |
-| `sapato import <path-or-git-url-or-tarball> [--name n]` | copy a skill folder into the vault (git URLs: shallow clone to temp dir, optional `--subdir`; `*.tar.gz`/`*.tgz`: see §11). Validates first; refuses if name exists unless `--force` |
+| `sapato import <source> [--name n]` | copy skills into the vault. Sources (§7.1): local folder, local `SKILL.md` file, git URL, raw `SKILL.md` URL, tarball (§11). Validates first; refuses if name exists unless `--force`. `--subdir`, `--all`, `--fix`, `--description` per §7.1 |
 | `sapato new [file]` | create a vault skill from a complete `SKILL.md` (file or stdin). Name comes from frontmatter; must be valid; refuses an existing name unless `--force` |
+| `sapato new --name n --description d [--compatible a,b] [--edit]` | scaffold mode: write `skills/<n>/SKILL.md` from the built-in template (§7.2) and, with `--compatible`, the compat table. Same validation and `--force` rule. `--edit` then opens it in `$VISUAL`, else `$EDITOR`, else `vi`. A file argument and `--name` together are a usage error |
 | `sapato export <skill…> [-o file]` | write a tarball (§11). Default file: `<name>-<version or 8-char hash>.skill.tar.gz` for one skill, `skills-<date>.skill.tar.gz` for several. Invalid skills refused |
-| `sapato adopt <skill> -a <id>` | copy an `unmanaged` target skill into the vault, then record it in that target's lock (it becomes `synced`) |
-| `sapato remove <skill>` | delete skill from vault. Refuses if installed anywhere unless `--force` (installed copies become `orphaned`) |
+| `sapato adopt <skill…> -a <id>` | copy an `unmanaged` target skill into the vault, then record it in that target's lock (it becomes `synced`). Also records it in the lock of every other configured agent whose `unmanaged` copy of that name has the identical hash (they become `synced` too). Skill args accept globs over that agent's unmanaged skills |
+| `sapato remove <skill>` | delete skill from vault and its `[skills.<name>]` table. Refuses if installed anywhere unless `--force` (installed copies become `orphaned`) |
 | `sapato sync` | apply `[assignments]`: install/update assigned skills; uninstall managed skills no longer assigned (`--prune`, off by default) |
 | `sapato doctor` | report: invalid vault skills, corrupt locks, duplicate exposure via read overlaps (same skill visible to one agent from two dirs), missing/orphaned/modified entries |
 | `sapato tui` (also bare `sapato`) | interactive UI |
@@ -164,7 +179,50 @@ Notes: `remove` counts an agent as "installed" if status is synced/outdated/modi
 
 Overlaps (§2) are about fixed directories the agent itself reads (e.g. cursor always reads `~/.claude/skills`, wherever sapato's `claude` target is configured). Resolve those extra-read dirs from the home dir, and compare each extra-read dir to that agent's own path (and to its other read dirs), symlinks resolved.
 
+Compatibility in other commands: `A`/`--all` installs and `sync` skip incompatible pairs (`skip <skill> in <agent>: incompatible`; a literal assignment name is reported the same way and never fails the sync). `update` still updates an outdated copy in an incompatible agent (it is already there). `doctor`: `warn` for a managed copy installed in an incompatible agent; `info` for a `compatible` name not configured here; `info` when a skill installed in one agent's dir is read (via that agent's or another agent's `reads`, §2) by an agent it is not compatible with.
+
 Exit codes: 0 ok, 1 error, 2 usage error. Errors go to stderr.
+
+### 7.1 Import sources
+
+The source kind is decided in this order:
+
+1. Ends in `.tar.gz`/`.tgz` → tarball (§11). If its manifest has `compatible` for a skill, that is written to the vault's `[skills.<name>]` table on import (replacing any existing one under `--force`).
+2. `https://` URL whose path ends in `.md` → **raw file**: HTTP GET (15s timeout, max 1 MiB body, status must be 200), treated as a one-file skill folder holding `SKILL.md`. A GitHub blob URL `https://github.com/<o>/<r>/blob/<ref>/<path>` is fetched from `https://raw.githubusercontent.com/<o>/<r>/<ref>/<path>`. Name hint (for `--fix`): the URL path's parent directory name.
+3. Other git URL (`https://`, `git@`, `*.git`) → shallow clone (as before).
+4. Local path to a regular file → **local file**, treated like a raw file. Name hint: its parent directory name.
+5. Local directory.
+
+**Skill discovery** in a folder or clone: with `--subdir`, exactly that folder. Otherwise, if the root holds `SKILL.md`, the root is the skill. Otherwise every directory (depth ≤ 4, skipping dot-dirs and symlinks, not descending into a found skill) holding `SKILL.md` is a candidate: one candidate → that skill; several → error listing their relative paths unless `--all` (import every candidate, all-or-nothing, like a multi-skill tarball; `--name` not allowed); none → error. Name hint for a folder skill: its directory name (for a clone root, the repo name without `.git`).
+
+**`--fix`** (folder, file and raw sources; not tarballs): when a skill fails only frontmatter rules (2–5 of §3), sapato repairs the vault copy instead of refusing: the name becomes `--name` if given, else the name hint normalized (lowercase; runs of characters outside `[a-z0-9]` become `-`; leading/trailing `-` trimmed; cut to 64); a missing or empty description takes `--description` (required in that case, else the error says so); missing frontmatter is created. Only the frontmatter's `name` and `description` keys are set; other keys, their order and the body are kept. The source is never modified. Problems `--fix` cannot repair (description too long, no `SKILL.md`) still refuse. Without `--fix`, an invalid skill is refused and the error suggests `--fix` when it would help.
+
+### 7.2 New-skill template
+
+`new --name` and the TUI wizard write this `SKILL.md` (the description YAML-quoted when needed):
+
+```markdown
+---
+name: <name>
+description: <description>
+---
+
+# <name>
+
+<!-- One or two sentences: what this skill does. -->
+
+## When to use
+
+<!-- The situations that should trigger this skill. -->
+
+## Steps
+
+1. <!-- What the agent does, in order. -->
+
+## Notes
+
+<!-- Constraints, gotchas, files in this folder (scripts/, references/, assets/). -->
+```
 
 ## 8. Install mechanics
 
@@ -193,7 +251,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 - Grid: a column-header row between two rules, then the skill rows in a scrolling viewport. Columns: `SKILL` (width = longest name, capped; overflow truncated with `…`), then one column per configured agent (width = max(len(id), 3) + 2; icon centered). The whole grid block is horizontally centered.
 - Cursor is per row (skill). No column cursor. Selected row uses the surface color background and a `▶`/`>` marker.
 - Status icon per cell (§9.5) colored by status. Empty cell (pair absent everywhere) = blank.
-- Keys: `↑↓`/`jk` move, `g`/`G` top/bottom, `pgup`/`pgdn`, `enter` open skill screen, `/` filter (substring; `esc` clears), `r` refresh, `a` adopt picker, `n` new skill, `I` import tarball (path prompt), `t` theme picker, `?` help, `q` quit.
+- Keys: `↑↓`/`jk` move, `g`/`G` top/bottom, `pgup`/`pgdn`, `enter` open skill screen, `/` filter (substring; `esc` clears), `r` refresh, `a` adopt picker, `n` new skill, `I` import (§9.4), `t` theme picker, `?` help, `q` quit.
 - Bar counts (row 1): `N skills · N invalid · N need attention` (attention = outdated + modified + orphaned + missing).
 
 ### 9.3 Skill screen (mode `SKILL`)
@@ -208,7 +266,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
   5. blank line, then `FILES (N)` and a tree of the skill's files using the hashing walk (§4: no dot-paths, no symlinks): a root `SKILL.md` first, then directories as `name/` before files, each sorted by name, drawn like `tree(1)`: connectors `├── `, `└── ` and continuation `│   ` / `    ` (ascii icon set: `|-- `, `` `-- ``, `|   `), connectors in Overlay; each file shows the exec glyph (§9.5) if executable and a right-aligned human size (`B`, `KiB`, `MiB`, one decimal above 1 KiB). Files come from the vault copy; if the skill isn't in the vault, from the cursor agent's installed copy, titled `FILES (N, installed in <agent>)`; if neither exists, `no files`.
 - Narrow terminals (< 70 cols): sidebar stacked above details, both full width.
 - All widths via `lipgloss.Width`; long values truncated with `…`; nothing exceeds the terminal.
-- Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all configured agents, `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
+- Keys: `i` install, `u` uninstall, `U` update, `d` diff (pager), `a` adopt (only on `unmanaged`), `A` install into all configured agents (incompatible ones skipped and reported), `c` toggle compatibility of the marked agents, or the cursor agent if none marked (vault skills only; all agents compatible again = table deleted), `x` export (path prompt, default name per §7), `D` remove from vault (confirm; force confirm if installed anywhere), `esc` back, `?` help, `q` quit.
 - Rows for skills not in the vault (orphaned/unmanaged/missing only) still open; actions that need the vault are disabled with an error notification.
 
 ### 9.4 Dialogs and modes
@@ -217,9 +275,10 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 
 Every other dialog (ADOPT, NEW, IMPORT, EXPORT, THEME, HELP) renders as one horizontally centered block, like the grid: block width = widest line, at least 60, at most the terminal width; long values truncated with `…`. Dialogs with an input (NEW, IMPORT, EXPORT) are two thirds of the terminal wide (at least 60, at most the terminal) and the input fills the block.
 
-- `ADOPT`: list of every `unmanaged` (skill, agent, path) across configured agents; `enter` adopts (force confirm on `ErrNeedsForce`), `esc` back.
-- `NEW`: multi-line textarea to paste a complete `SKILL.md`. Live validation line under it (valid, or the first problem). `ctrl+s` saves via `ops.Create`; `esc` cancels (confirm if non-empty).
-- `IMPORT` / `EXPORT`: single-line path input with default; `enter` runs; results in the bar.
+- `ADOPT`: every `unmanaged` (skill, agent, path) across configured agents, grouped under an agent heading per configured agent (agent order; agents with none omitted). A filter row at the top, `All · claude · cursor · …`, switched with `tab`/`shift+tab` or `←→`, limits the list to one agent. `space` marks a row; `enter` adopts the marked rows, or the cursor row if none marked (force confirm on `ErrNeedsForce`). A name unmanaged in several agents with **different** hashes shows a `conflict` tag on each of its rows; marking two rows of the same name is refused with an error notification (adopt one, then the others become `modified`/handled normally). Same name with identical hashes needs one adopt (§7 adopt). Results as one notification summarizing the count. `esc` back.
+- `NEW`: a wizard by default, `tab` switches to paste mode (the old textarea) and back. Wizard fields, moved through with `↑↓`/`enter`: name (live-validated against §3 rule 5 and existing vault names), description (live count `N/1024`), compatible agents (checkbox list of configured agents, all checked by default; all checked = no compat table). `ctrl+s` creates via the same op as `new --name` (§7.2); then a modal confirm `Open <path> in <editor>?`; `y` runs the editor with `tea.ExecProcess` and refreshes on return. Paste mode: multi-line textarea, live validation line, `ctrl+s` saves via `ops.Create`. `esc` cancels (confirm if anything was typed).
+- `IMPORT`: a single source input (path or URL, §7.1). `ctrl+o` opens a file picker over the body starting at the input's directory (or the home dir): `↑↓` move, `enter` on a directory enters it, `backspace` goes up, `space` chooses the highlighted entry (directory, `.md`, `.tar.gz`/`.tgz`; other files are listed dimmed and not choosable), `.` toggles dot-entries, `esc` closes; choosing fills the input. `enter` on the input resolves the source: if several skills are found, a multi-select list (`space` marks, `a` marks all, `enter` imports the marked; none marked = refused with a hint); if a skill needs `--fix`, a fix-up form shows the problems and editable name (prefilled with the normalized hint) and description fields, `ctrl+s` imports with the fix. Name exists → force confirm. Results as notifications.
+- `EXPORT`: single-line path input with default; `enter` runs; results as notifications.
 - `THEME`: list of themes; moving the cursor previews live; `enter` keeps it for this session, `esc` restores the previous one. Never writes the config file.
 - `HELP`: keys for the current screen + icon/status legend.
 
@@ -239,6 +298,9 @@ Icon sets (per status, see §6):
 | orphaned | `\uf127` | `∅` | `orp` |
 | unmanaged | `\uf059` | `◆` | `?` |
 | missing | `\uf071` | `!` | `!` |
+| incompatible | `\uf05e` | `\u2298` | `-` |
+
+`incompatible` cells use the Overlay color. On the skill screen, an agent row whose pair is installed but incompatible shows its normal status followed by ` \u2298` (the incompatible icon) in Overlay, and the details section for that agent adds the line `not compatible with <agent>` in Yellow. The details pane shows a line `compat  all agents` or `compat  <list>` under the vault line.
 
 Row marker: nerd `\uf054`, unicode `▶`, ascii `>`. Mark: nerd `\uf14a`, unicode `■`, ascii `*`. Executable file: nerd `\uf013`, unicode `⚙`, ascii `x`. Info notification: nerd `\uf05a`, unicode `ℹ`, ascii `i`. Icon sets carry no separators.
 
@@ -269,7 +331,7 @@ Libraries: `github.com/spf13/cobra`, `github.com/pelletier/go-toml/v2`, `gopkg.i
 
 ## 11. Skill tarballs
 
-- gzip-compressed tar. Top-level entries are skill folders `<name>/…`; one archive may hold several skills. Nothing else at top level (a `sapato-export.json` manifest with `{"format":1,"skills":{name:hash}}` is written on export and ignored on import if absent).
+- gzip-compressed tar. Top-level entries are skill folders `<name>/…`; one archive may hold several skills. Nothing else at top level (a `sapato-export.json` manifest with `{"format":1,"skills":{name:hash},"compatible":{name:[agents]}}` is written on export — `compatible` holds only skills with a compat table and is omitted when empty — and the manifest is ignored on import if absent).
 - Export: files per hashing rules (§4: no dot-paths, no symlinks), modes preserved (0755 for exec, 0644 otherwise), dirs 0755, deterministic order, mtime zero.
 - Import safety: reject absolute paths, `..` components, symlinks/hardlinks/devices, entries outside a top-level skill folder, total uncompressed size > 50 MiB, > 10k entries. Extract to a temp dir, validate every skill, then copy all-or-nothing into the vault (existing names refused unless `--force`; `--name` only allowed for single-skill archives).
 
