@@ -1,13 +1,11 @@
-# 29 — Grid centering
+# 29 — Grid centering by text extent
 
-Spec: §9.2 Grid (amended).
+Spec: §9.2 Grid (amended: center the text extent).
 
-Measured before this task (5 agents, 141 cols): header text spans cols 38–102 (centered), but rows span 36–99 — agent labels are left-aligned in their columns while icons are centered, and the left marker gutter is not balanced on the right, so rows sit ~2 cols left of center.
+Measured at HEAD (5 agents, unicode): header text 46–94 (center 70.0 at 141 cols), rows 46–91 (68.5): the grid is centered as a padded block whose last column has ~4 blank cells after its icon, so rows sit ~1.5 cols left. Labels and icons already share centers (no change there). A balancing right gutter makes it worse (tried).
 
 ## Deliver
-- Agent column labels centered in their columns with the same rounding as the icons.
-- 2-col right gutter balancing the marker gutter; center the whole block.
-- Keep everything else of the grid (widths, truncation, cursor style, scrolling).
+- Compute the grid's left offset so the span first SKILL char → last agent icon is centered on the terminal (±0.5). The marker gutter stays left of that span; trailing blank of the last column is not counted. Keep widths, truncation, cursor style, scrolling. Clamp so nothing exceeds the terminal (marker gutter never goes below col 0).
 
 ## Done when
-- Tests (fixture with 5 agents, widths 141, 100, 80; unicode icons): for every agent column the icon's column index equals the label's center (label start + (len-1)/2, same rounding); the midpoint of the header row's text and the midpoint of a full row's text (first name char to last icon) are within 1 col of each other and of the screen center; nothing exceeds the terminal; existing grid tests updated. Gate passes.
+- Tests (5 built-in agents, widths 141, 100, 80, unicode icons, a skill with a cell in every agent): row text midpoint (first name char to last icon) within 0.5 of the screen center; header text midpoint within 1.5 of the row midpoint; each icon column == its label's center; nothing exceeds the terminal; existing grid tests (e.g. TestGridIsCentered) updated, none deleted without replacement. Gate passes.
