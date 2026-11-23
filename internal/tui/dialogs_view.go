@@ -19,13 +19,14 @@ const (
 	confirmMinW = 40
 )
 
-// dialogBlock centers a dialog as one block, as wide as its widest line, at least
-// dialogMinW and at most the terminal. build renders the lines for a width, so a
-// long value is cut to fit: it runs at the terminal width to measure the block,
-// then at the block width.
-func (m Model) dialogBlock(build func(w int) []string) []string {
-	blockW := min(m.layoutWidth(), max(dialogMinW, maxWidth(build(m.layoutWidth()))))
-	return m.centered(build(blockW), blockW)
+// screenBody is a non-main screen (spec §9.4): the title band under the header rule,
+// then the content as one centered block of blockWidth. The band is the title centered
+// in bold and a full-width rule. build renders the lines for the block's width, so a
+// long value is cut to fit.
+func (m Model) screenBody(title string, build func(w int) []string) []string {
+	blockW := m.blockWidth()
+	band := []string{center(m.styles.bold.Render(truncate(title, m.layoutWidth())), m.width), m.rule()}
+	return append(band, m.centered(build(blockW), blockW)...)
 }
 
 // confirmModal is a confirm over the screen it came from (spec §9.4): that screen,
@@ -109,16 +110,9 @@ func confirmTitle(a action) string {
 	return capitalize(a.op)
 }
 
-// inputBlock centers a dialog whose input sets its width: inputWidth, which
-// sizeInputs fits the editor and the path prompt to.
-func (m Model) inputBlock(build func(w int) []string) []string {
-	w := m.inputWidth()
-	return m.centered(build(w), w)
-}
-
-// inputWidth is the width of the NEW editor and the path prompts: two thirds of
-// the terminal, at least dialogMinW, never wider than the terminal.
-func (m Model) inputWidth() int {
+// blockWidth is the width of the content block of every titled screen and step: two
+// thirds of the terminal, at least dialogMinW, never wider than the terminal.
+func (m Model) blockWidth() int {
 	return min(m.layoutWidth(), max(dialogMinW, m.layoutWidth()*2/3))
 }
 
@@ -140,7 +134,7 @@ func (m Model) centered(lines []string, blockW int) []string {
 // window that follows the cursor.
 func (m Model) adoptBody(w int) []string {
 	copies := m.pickCopies()
-	lines := []string{m.styles.bold.Render(truncate("Adopt unmanaged skills into the vault", w)), "", m.filterRow(w), ""}
+	lines := []string{m.filterRow(w), ""}
 	if len(copies) == 0 {
 		return append(lines, m.styles.dim.Render(truncate("No unmanaged skills in the configured agents.", w)))
 	}
@@ -231,13 +225,11 @@ func (m Model) newCheck() (string, lipgloss.Style) {
 
 // pathBody is the IMPORT or EXPORT prompt: its input and what the input takes.
 func (m Model) pathBody(w int) []string {
-	title, hint := "Import from", "a skill folder, a git URL or a .tar.gz path"
+	hint := "a skill folder, a git URL or a .tar.gz path"
 	if m.mode == modeExport {
-		title, hint = "Export to", "a new file; an existing file is refused"
+		hint = "a new file; an existing file is refused"
 	}
 	return []string{
-		m.styles.bold.Render(truncate(title, w)),
-		"",
 		m.path.View(),
 		"",
 		m.styles.dim.Render(truncate(hint, w)),
@@ -247,7 +239,7 @@ func (m Model) pathBody(w int) []string {
 // themeBody is the THEME picker: one row per theme, the cursor on the previewed one.
 func (m Model) themeBody(w int) []string {
 	all := theme.All()
-	lines := []string{m.styles.bold.Render(truncate("Theme", w)), ""}
+	var lines []string
 	end := min(len(all), m.themeTop+m.themeRows())
 	for i := m.themeTop; i < end; i++ {
 		th := all[i]

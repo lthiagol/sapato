@@ -34,23 +34,25 @@ func (m Model) body() []string {
 	case modeDiff:
 		return m.diffBody()
 	case modeHelp:
-		return m.dialogBlock(m.helpBody)
+		return m.screenBody("Help", m.helpBody)
 	case modeAdopt:
-		return m.dialogBlock(m.adoptBody)
+		return m.screenBody("Adopt unmanaged skills into the vault", m.adoptBody)
 	case modeNew:
-		return m.inputBlock(m.newBody)
-	case modeImport, modeExport:
-		return m.inputBlock(m.pathBody)
+		return m.screenBody("Create a new skill", m.newBody)
+	case modeImport:
+		return m.screenBody("Import skills", m.pathBody)
+	case modeExport:
+		return m.screenBody("Export "+m.open, m.pathBody)
 	case modeImportList:
-		return m.dialogBlock(m.importListBody)
+		return m.screenBody("Import skills · pick skills", m.importListBody)
 	case modeImportFix:
-		return m.inputBlock(m.fixBody)
+		return m.screenBody("Import skills · fix "+m.fixName(), m.fixBody)
 	case modeImportBrowse:
-		return m.dialogBlock(m.browseBody)
+		return m.screenBody("Import skills · choose a file", m.browseBody)
 	case modeTheme:
-		return m.dialogBlock(m.themeBody)
+		return m.screenBody("Theme", m.themeBody)
 	case modeLog:
-		return m.dialogBlock(m.logBody)
+		return m.screenBody("Log", m.logBody)
 	}
 	if m.screen == screenSkill {
 		return m.skillBody()
@@ -278,14 +280,30 @@ func (m Model) diffBody() []string {
 	return append([]string{m.styles.bold.Render(m.diffTitle)}, strings.Split(m.diff.View(), "\n")...)
 }
 
-// helpBody is the keys of the current screen and the icon legend. A description
-// longer than w is cut with an ellipsis.
+// helpBody is HELP: the lines from helpTop, as many as the body holds.
 func (m Model) helpBody(w int) []string {
+	lines := m.helpLines(w)
+	top := min(m.helpTop, max(0, len(lines)-m.helpRows(len(lines))))
+	return lines[top:]
+}
+
+// helpRows is how many HELP lines fit under the title band, given the total of n. Before
+// the first size message it is every line.
+func (m Model) helpRows(n int) int {
+	if m.height == 0 {
+		return n
+	}
+	return max(1, m.bodyHeight()-2)
+}
+
+// helpLines is the keys of the current screen and the icon legend. A description
+// longer than w is cut with an ellipsis.
+func (m Model) helpLines(w int) []string {
 	// helpLine is a line of a label column and a description, cut to w.
 	helpLine := func(prefix, desc string) string {
 		return prefix + truncate(desc, w-lipgloss.Width(prefix))
 	}
-	lines := []string{m.styles.bold.Render(truncate("Help", w)), "", m.styles.bold.Render("Cells")}
+	lines := []string{m.styles.bold.Render("Cells")}
 	for _, st := range states {
 		glyph := m.styles.glyph[st.state].Render(m.icons.Status[st.state])
 		lines = append(lines, helpLine(fmt.Sprintf("  %s  %s ", glyph, pad(string(st.state), 13)), st.desc))
@@ -321,10 +339,15 @@ func (m Model) screenHints() (own, global []key.Binding) {
 }
 
 // bar is the bottom bar of spec §9.1: the rule carrying the counts, then the hint
-// row, or two when the globals wrap. The bar has no background.
+// row, or two when the globals wrap. Each hint row is centered. The bar has no
+// background.
 func (m Model) bar() []string {
 	own, global := m.barHints()
-	return append([]string{m.summaryRule()}, m.hintRows(own, global)...)
+	bar := []string{m.summaryRule()}
+	for _, row := range m.hintRows(own, global) {
+		bar = append(bar, m.leftPad(lipgloss.Width(row))+row)
+	}
+	return bar
 }
 
 // summaryRule is the bar's rule with the counts right-aligned and two rule glyphs
@@ -359,22 +382,22 @@ func (m Model) summaryParts() []string {
 	}
 }
 
-// hintRows is the hint row of the bar, left-aligned after a one-column pad: the action
-// hints, ` │ `, then the global hints. When that is too wide the globals wrap to a
-// second row, and the action part is cut with an ellipsis if it is too wide alone.
+// hintRows is the hint row of the bar, before it is centered: the action hints, ` │ `,
+// then the global hints. When that is too wide the globals wrap to a second row, and
+// the action part is cut with an ellipsis if it is too wide alone.
 func (m Model) hintRows(own, global []key.Binding) []string {
 	action := m.actionText(own)
 	if len(global) == 0 {
-		return []string{m.cutRow(" " + action)}
+		return []string{m.cutRow(action)}
 	}
 	if action == "" {
 		return []string{m.globalRow(global)}
 	}
-	row := " " + action + m.styles.dim.Render(" │ ") + m.globalText(global)
+	row := action + m.styles.dim.Render(" │ ") + m.globalText(global)
 	if m.fits(row) {
 		return []string{row}
 	}
-	return []string{m.cutRow(" " + action), m.globalRow(global)}
+	return []string{m.cutRow(action), m.globalRow(global)}
 }
 
 // globalRow is the global hints as a row of their own. It drops t theme, then L log,
@@ -382,7 +405,7 @@ func (m Model) hintRows(own, global []key.Binding) []string {
 func (m Model) globalRow(global []key.Binding) string {
 	var row string
 	for drop := 0; drop <= 2; drop++ {
-		row = " " + m.globalText(dropGlobals(global, drop))
+		row = m.globalText(dropGlobals(global, drop))
 		if m.fits(row) {
 			return row
 		}
@@ -473,7 +496,7 @@ func (m Model) barHints() (own, global []key.Binding) {
 	case modeDiff:
 		return []key.Binding{scrollHint}, []key.Binding{m.keys.closeView, m.keys.log}
 	case modeHelp:
-		return nil, []key.Binding{m.keys.closeView, m.keys.log}
+		return []key.Binding{scrollHint}, []key.Binding{m.keys.closeView, m.keys.log}
 	case modeAdopt:
 		return []key.Binding{adoptHint, m.keys.mark, agentHint}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeNew:

@@ -243,31 +243,17 @@ func (m Model) logMaxTop() int {
 
 // logKey scrolls LOG, and closes it back to the mode it opened over.
 func (m Model) logKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	k := m.keys
-	last := m.logMaxTop()
-	rows := m.logRows()
-	switch {
-	case key.Matches(msg, k.closeView):
+	if key.Matches(msg, m.keys.closeView) {
 		m.mode = m.logBack
-	case key.Matches(msg, k.up):
-		m.logTop = clampIndex(m.logTop-1, last+1)
-	case key.Matches(msg, k.down):
-		m.logTop = clampIndex(m.logTop+1, last+1)
-	case key.Matches(msg, k.pageUp):
-		m.logTop = clampIndex(m.logTop-rows, last+1)
-	case key.Matches(msg, k.pageDown):
-		m.logTop = clampIndex(m.logTop+rows, last+1)
-	case key.Matches(msg, k.top):
-		m.logTop = 0
-	case key.Matches(msg, k.bottom):
-		m.logTop = last
+		return m, nil
 	}
+	m.logTop = m.scrollKeys(msg, m.logTop, m.logRows(), len(m.notes))
 	return m, nil
 }
 
 // logBody is LOG: the notifications from logTop, oldest first.
 func (m Model) logBody(w int) []string {
-	lines := []string{m.styles.bold.Render(truncate("Log", w)), ""}
+	var lines []string
 	if len(m.notes) == 0 {
 		return append(lines, m.styles.dim.Render(truncate("no notifications yet", w)))
 	}

@@ -58,13 +58,17 @@ func newPathInput() textinput.Model {
 	return p
 }
 
-// sizeInputs fits the editor and the path inputs to their dialog block. The path
-// inputs draw their cursor one column past their width, so that column is left out.
+// sizeInputs fits the editor and the path inputs to their block. The editor is sized
+// for the paste mode of NEW, whatever is open when this runs, since its bar sets the
+// rows left for it: the title band and the check line take four rows. The path inputs
+// draw their cursor one column past their width, so that column is left out.
 func (m *Model) sizeInputs() {
-	m.area.SetWidth(m.inputWidth())
-	m.area.SetHeight(max(1, m.bodyHeight()-2))
+	m.area.SetWidth(m.blockWidth())
+	paste := *m
+	paste.mode, paste.newPaste = modeNew, true
+	m.area.SetHeight(max(1, paste.bodyHeight()-4))
 	for _, in := range []*textinput.Model{&m.path, &m.fixup.name, &m.fixup.desc, &m.wiz.name, &m.wiz.desc} {
-		in.Width = max(1, m.inputWidth()-lipgloss.Width(in.Prompt)-1)
+		in.Width = max(1, m.blockWidth()-lipgloss.Width(in.Prompt)-1)
 	}
 }
 
@@ -233,8 +237,8 @@ func (m Model) adoptKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// pickRows is how many picker lines fit under the title, the filter row and their
-// gaps. Before the first size message it is every line.
+// pickRows is how many picker lines fit under the title band, the filter row and their
+// gap. Before the first size message it is every line.
 func (m Model) pickRows() int {
 	if m.height == 0 {
 		return max(1, len(pickLines(m.pickCopies())))
@@ -408,7 +412,7 @@ func (m *Model) setTheme(th theme.Theme) {
 	m.styles = newStyles(th, m.styles.noColor)
 }
 
-// themeRows is how many theme rows fit under the title and its gap. Before the
+// themeRows is how many theme rows fit under the title band. Before the
 // first size message it is every theme.
 func (m Model) themeRows() int {
 	if m.height == 0 {

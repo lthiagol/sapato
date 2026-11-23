@@ -203,8 +203,8 @@ func TestBarAt80(t *testing.T) {
 	bar := plainBar(m, m.View())
 	want := []string{
 		"───────────────────────────────────── 4 skills · 0 invalid · 3 need attention ──",
-		" enter open · / filter · r refresh · a adopt · n new · I import",
-		" ↑↓/jk move · t theme · L log · ? help · q quit",
+		centered("enter open · / filter · r refresh · a adopt · n new · I import", 80),
+		centered("↑↓/jk move · t theme · L log · ? help · q quit", 80),
 	}
 	if strings.Join(bar, "\n") != strings.Join(want, "\n") {
 		t.Errorf("bar at 80 columns:\n%s\nwant:\n%s", strings.Join(bar, "\n"), strings.Join(want, "\n"))
@@ -328,9 +328,9 @@ func TestSummaryDropsFromTheRight(t *testing.T) {
 	}
 }
 
-// TestHintRowIsLeftAlignedWithDimGlobals checks the hint row at 200 columns: one column
-// of pad, the action hints, the │ divider, then the globals in the dimmer style.
-func TestHintRowIsLeftAlignedWithDimGlobals(t *testing.T) {
+// TestHintRowIsCenteredWithDimGlobals checks the hint row at 200 columns: centered, the
+// action hints, the │ divider, then the globals in the dimmer style.
+func TestHintRowIsCenteredWithDimGlobals(t *testing.T) {
 	m, _ := layoutModel(t, 200, 60)
 	m = colored(t, m)
 	view := m.View()
@@ -340,7 +340,7 @@ func TestHintRowIsLeftAlignedWithDimGlobals(t *testing.T) {
 	}
 	row := bar[1]
 	plain := sgr.ReplaceAllString(row, "")
-	want := " enter open · / filter · r refresh · a adopt · n new · I import │ ↑↓/jk move · t theme · L log · ? help · q quit"
+	want := centered("enter open · / filter · r refresh · a adopt · n new · I import │ ↑↓/jk move · t theme · L log · ? help · q quit", 200)
 	if plain != want {
 		t.Errorf("hint row = %q, want %q", plain, want)
 	}
@@ -356,30 +356,35 @@ func TestHintRowIsLeftAlignedWithDimGlobals(t *testing.T) {
 }
 
 // TestHintRowsWrapThenDrop checks the hint rows where the globals wrap to a second row,
-// and where t theme, then L log, drop out of it.
+// and where t theme, then L log, drop out of it. Each row is centered.
 func TestHintRowsWrapThenDrop(t *testing.T) {
 	tests := []struct {
 		name  string
 		steps []string
 		w     int
-		want  []string // the hint rows, without their color codes
+		want  []string // the hint rows, without their pad and color codes
 	}{
-		{name: "grid at 120 keeps one row", w: 120, want: []string{" enter open · / filter · r refresh · a adopt · n new · I import │ ↑↓/jk move · t theme · L log · ? help · q quit"}},
-		{name: "grid at 80 wraps the globals", w: 80, want: []string{" enter open · / filter · r refresh · a adopt · n new · I import", " ↑↓/jk move · t theme · L log · ? help · q quit"}},
-		{name: "grid at 40 drops t theme", w: 40, want: []string{" enter open · / filter · r refresh · a …", " ↑↓/jk move · L log · ? help · q quit"}},
-		{name: "grid at 30 drops t theme and L log", w: 30, want: []string{" enter open · / filter · r re…", " ↑↓/jk move · ? help · q quit"}},
-		{name: "skill screen at 120 wraps the globals", steps: []string{"enter"}, w: 120, want: []string{" space mark · i install · u uninstall · U update · d diff · a adopt · A install all · c compat · x export · D remove", " ↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit"}},
-		{name: "skill screen at 80 keeps every global", steps: []string{"enter"}, w: 80, want: []string{" space mark · i install · u uninstall · U update · d diff · a adopt · A install…", " ↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit"}},
-		{name: "skill screen at 60 drops t theme and L log", steps: []string{"enter"}, w: 60, want: []string{" space mark · i install · u uninstall · U update · d diff ·…", " ↑↓/jk move · pgup/pgdn page · esc back · ? help · q quit"}},
-		{name: "action alone too wide at 30", steps: []string{"enter"}, w: 30, want: []string{" space mark · i install · u u…", " ↑↓/jk move · pgup/pgdn page …"}},
+		{name: "grid at 120 keeps one row", w: 120, want: []string{"enter open · / filter · r refresh · a adopt · n new · I import │ ↑↓/jk move · t theme · L log · ? help · q quit"}},
+		{name: "grid at 80 wraps the globals", w: 80, want: []string{"enter open · / filter · r refresh · a adopt · n new · I import", "↑↓/jk move · t theme · L log · ? help · q quit"}},
+		{name: "grid at 40 drops t theme", w: 40, want: []string{"enter open · / filter · r refresh · a a…", "↑↓/jk move · L log · ? help · q quit"}},
+		{name: "grid at 30 drops t theme and L log", w: 30, want: []string{"enter open · / filter · r ref…", "↑↓/jk move · ? help · q quit"}},
+		{name: "skill screen at 120 wraps the globals", steps: []string{"enter"}, w: 120, want: []string{"space mark · i install · u uninstall · U update · d diff · a adopt · A install all · c compat · x export · D remove", "↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit"}},
+		{name: "skill screen at 80 keeps every global", steps: []string{"enter"}, w: 80, want: []string{"space mark · i install · u uninstall · U update · d diff · a adopt · A install …", "↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit"}},
+		{name: "skill screen at 60 drops t theme and L log", steps: []string{"enter"}, w: 60, want: []string{"space mark · i install · u uninstall · U update · d diff · …", "↑↓/jk move · pgup/pgdn page · esc back · ? help · q quit"}},
+		{name: "action alone too wide at 30", steps: []string{"enter"}, w: 30, want: []string{"space mark · i install · u un…", "↑↓/jk move · pgup/pgdn page ·…"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, _ := layoutModel(t, tt.w, 24)
 			m = press(t, m, tt.steps...)
 			rows := plainBar(m, m.View())[1:]
-			if strings.Join(rows, "\n") != strings.Join(tt.want, "\n") {
-				t.Errorf("hint rows:\n%s\nwant:\n%s", strings.Join(rows, "\n"), strings.Join(tt.want, "\n"))
+			if len(rows) != len(tt.want) {
+				t.Fatalf("hint rows = %q, want %q", rows, tt.want)
+			}
+			for i, row := range rows {
+				if got := assertCentered(t, row, tt.w); got != tt.want[i] {
+					t.Errorf("hint row %d = %q, want %q", i, got, tt.want[i])
+				}
 			}
 		})
 	}
@@ -390,35 +395,51 @@ func TestHintRowsWrapThenDrop(t *testing.T) {
 func TestFilterAndConfirmReplaceOnlyTheActionPart(t *testing.T) {
 	m, _ := layoutModel(t, 80, 24)
 	m = press(t, m, "/", "o")
-	if bar := plainBar(m, m.View()); len(bar) != 2 || bar[1] != " / o · enter apply · esc clear" {
+	if bar := plainBar(m, m.View()); len(bar) != 2 || bar[1] != centered("/ o · enter apply · esc clear", 80) {
 		t.Errorf("filter hint row = %q, want the input then its hints, no globals", bar)
 	}
 	m, _ = layoutModel(t, 80, 24)
 	m = press(t, m, "enter", "u")
-	if bar := plainBar(m, m.View()); len(bar) != 2 || bar[1] != " y yes · n no" {
+	if bar := plainBar(m, m.View()); len(bar) != 2 || bar[1] != centered("y yes · n no", 80) {
 		t.Errorf("confirm hint row = %q, want y yes · n no", bar)
 	}
 }
 
-// TestActionHintsAreLeftAligned checks that the action hints start after one column of pad, at
-// each width, on the grid and the skill screen.
-func TestActionHintsAreLeftAligned(t *testing.T) {
+// TestHintRowsAreCentered checks that the action hints of the grid and the skill screen
+// start where a centered row of their width starts.
+func TestHintRowsAreCentered(t *testing.T) {
 	for _, w := range []int{80, 120, 200} {
 		for _, sc := range []struct {
 			name  string
 			steps []string
 			first string
-		}{{name: "main grid", first: " enter open"}, {name: "skill screen", steps: []string{"enter"}, first: " space mark"}} {
+		}{{name: "main grid", first: "enter open"}, {name: "skill screen", steps: []string{"enter"}, first: "space mark"}} {
 			t.Run(fmt.Sprintf("%s at %d", sc.name, w), func(t *testing.T) {
 				m, _ := layoutModel(t, w, 24)
 				m = press(t, m, sc.steps...)
 				row := plainBar(m, m.View())[1]
-				if !strings.HasPrefix(row, sc.first) || strings.HasPrefix(row, "  ") {
-					t.Errorf("hint row = %q, want it to start with one pad column and %q", row, sc.first)
+				if got := assertCentered(t, row, w); !strings.HasPrefix(got, sc.first) {
+					t.Errorf("hint row = %q, want it to start with %q", got, sc.first)
 				}
 			})
 		}
 	}
+}
+
+// centered is s with the pad a centered row of s gets in w columns.
+func centered(s string, w int) string {
+	return strings.Repeat(" ", max(0, (w-lipgloss.Width(s))/2)) + s
+}
+
+// assertCentered fails unless the plain row is centered in w columns. It returns the row
+// without its pad.
+func assertCentered(t *testing.T, row string, w int) string {
+	t.Helper()
+	got := strings.TrimLeft(row, " ")
+	if want := centered(got, w); row != want {
+		t.Errorf("hint row %q is not centered in %d columns, want %q", row, w, want)
+	}
+	return got
 }
 
 // TestBodyHeightFollowsTheBarLines checks that the body takes the rows the bar leaves:
@@ -515,6 +536,162 @@ func TestSkillScreenKeepsTheCursorAgentInView(t *testing.T) {
 	}
 }
 
+// bandScreens are the non-main screens and overlays that draw the title band (spec
+// §9.4), each with the title it draws. setup reaches the screen from the grid of
+// layoutModel.
+var bandScreens = []struct {
+	name, title string
+	setup       func(t *testing.T, m Model, b *fakeBackend) Model
+}{
+	{name: "help", title: "Help", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		return press(t, m, "?")
+	}},
+	{name: "adopt", title: "Adopt unmanaged skills into the vault", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		return press(t, m, "a")
+	}},
+	{name: "new wizard", title: "Create a new skill", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		return press(t, m, "n")
+	}},
+	{name: "new paste", title: "Create a new skill", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		return press(t, m, "n", "tab")
+	}},
+	{name: "import source", title: "Import skills", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		return press(t, m, "I")
+	}},
+	{name: "import picker", title: "Import skills · choose a file", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		m.home = t.TempDir()
+		for i := range 4 {
+			writeSkillFolder(t, m.home, fmt.Sprintf("entry-%d", i))
+		}
+		return press(t, typeText(t, press(t, m, "I"), m.home), "ctrl+o")
+	}},
+	{name: "import list", title: "Import skills · pick skills", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		b.discovered = map[string][]ops.Candidate{"/src/pack": {
+			{Rel: "a", Name: "alpha", Hint: "alpha", Valid: true},
+			{Rel: "b", Name: "", Problems: []string{"description is missing"}},
+		}}
+		return press(t, typeText(t, press(t, m, "I"), "/src/pack"), "enter")
+	}},
+	{name: "import fix-up", title: "Import skills · fix draft", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		b.discovered = map[string][]ops.Candidate{"/src/bad": {
+			{Rel: ".", Name: "draft", Hint: "draft", Problems: []string{"name is invalid"}, Fixable: true},
+		}}
+		return press(t, typeText(t, press(t, m, "I"), "/src/bad"), "enter")
+	}},
+	{name: "export", title: "Export a-rather-long-skill-name-that-keeps-going-on", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		const name = "a-rather-long-skill-name-that-keeps-going-on"
+		m.vaultSkills[name] = vault.Skill{Name: name}
+		return press(t, onRow(t, m, name), "enter", "x")
+	}},
+	{name: "theme", title: "Theme", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		return press(t, m, "t")
+	}},
+	{name: "log", title: "Log", setup: func(t *testing.T, m Model, b *fakeBackend) Model {
+		return press(t, m, "L")
+	}},
+}
+
+// TestTitleBandOnEveryNonMainScreen checks each non-main screen at 60x20 and 120x40: the
+// rule under the header, then the title row centered with the right title, then a
+// full-width rule. The content is one block centered in the terminal, and nothing is
+// wider than the terminal.
+func TestTitleBandOnEveryNonMainScreen(t *testing.T) {
+	for _, size := range [][2]int{{60, 20}, {120, 40}} {
+		for _, sc := range bandScreens {
+			t.Run(fmt.Sprintf("%s at %dx%d", sc.name, size[0], size[1]), func(t *testing.T) {
+				m, b := layoutModel(t, size[0], size[1])
+				m = sc.setup(t, m, b)
+				if m.mode == modeNormal {
+					t.Fatalf("the screen did not open: %s", m.lastMsg())
+				}
+				w, h := size[0], size[1]
+				view := m.View()
+				lines := strings.Split(view, "\n")
+				if len(lines) != h {
+					t.Fatalf("view has %d lines, want %d", len(lines), h)
+				}
+				head := m.headerHeight()
+				plain := func(i int) string { return sgr.ReplaceAllString(lines[i], "") }
+				if got := plain(head); got != strings.Repeat(m.icons.Rule, w) {
+					t.Errorf("row under the header is %q, want the full-width rule", got)
+				}
+				title := plain(head + 1)
+				if got := strings.TrimSpace(title); got != sc.title {
+					t.Errorf("title row = %q, want %q", got, sc.title)
+				}
+				if got, want := leadingSpaces(title), (w-lipgloss.Width(sc.title))/2; got != want {
+					t.Errorf("title starts at column %d, want %d (centered)", got, want)
+				}
+				if got := plain(head + 2); got != strings.Repeat(m.icons.Rule, w) {
+					t.Errorf("row under the title is %q, want the full-width rule", got)
+				}
+
+				// Every titled screen and step is one block of blockWidth, centered, with
+				// its content left-aligned: the block's edge is the least indent of its lines.
+				if got, want := contentEdge(m, view), (w-m.blockWidth())/2; got != want {
+					t.Errorf("content block starts at column %d, want %d (a centered block %d wide):\n%s", got, want, m.blockWidth(), view)
+				}
+				for i, l := range lines {
+					if got := lipgloss.Width(l); got > w {
+						t.Errorf("line %d is %d columns, want at most %d: %q", i, got, w, l)
+					}
+				}
+			})
+		}
+	}
+}
+
+// TestPasteEditorSitsAboveItsBar checks that the check line of NEW's paste mode is the
+// row just above the bar at every size: the editor is sized for the paste mode's own bar,
+// not for the bar of the wizard or of the screen NEW opened over.
+func TestPasteEditorSitsAboveItsBar(t *testing.T) {
+	for _, size := range layoutSizes {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			m, _ := layoutModel(t, size[0], size[1])
+			m = press(t, m, "n", "tab")
+			if !m.newPaste {
+				t.Fatalf("NEW did not switch to the paste mode: %q", m.lastMsg())
+			}
+			lines := strings.Split(m.View(), "\n")
+			above := sgr.ReplaceAllString(lines[len(lines)-len(m.bar())-1], "")
+			if !strings.Contains(above, "paste a complete SKILL.md") {
+				t.Errorf("row above the bar is %q, want the editor's check line:\n%s", above, m.View())
+			}
+		})
+	}
+}
+
+// helpLast is the last line of HELP. It shows only once HELP is scrolled to its end.
+const helpLast = "esc or ? closes this view"
+
+// TestHelpScrollsToItsLastLine checks that HELP, taller than a short terminal, scrolls
+// to its last line without drawing past the terminal, and that a reopened HELP starts
+// at its top.
+func TestHelpScrollsToItsLastLine(t *testing.T) {
+	m, _ := layoutModel(t, 60, 20)
+	m = press(t, m, "?")
+	if strings.Contains(m.View(), helpLast) {
+		t.Fatalf("HELP shows its last line at 60x20 before any scroll:\n%s", m.View())
+	}
+	for range 10 {
+		m = press(t, m, "pgdown")
+	}
+	view := m.View()
+	if !strings.Contains(view, helpLast) {
+		t.Fatalf("HELP does not reach its last line by scrolling:\n%s", view)
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) != 20 {
+		t.Errorf("view has %d rows, want 20", len(lines))
+	}
+	assertFits(t, 60, lines)
+
+	m = press(t, m, "esc", "?")
+	if !strings.Contains(m.View(), "Cells") {
+		t.Errorf("reopened HELP does not start at its top:\n%s", m.View())
+	}
+}
+
 // assertFits fails on each body line wider than w columns. It checks the lines
 // before the frame cuts them to the terminal.
 func assertFits(t *testing.T, w int, body []string) {
@@ -575,20 +752,19 @@ func TestBarHintsCutAtTheEnd(t *testing.T) {
 	}
 }
 
-// bodyMargins returns the columns left of the screen body's block and the columns
-// right of it. The block is the widest non-blank line of the body.
-func bodyMargins(t *testing.T, m Model) (left, right int) {
-	t.Helper()
-	lines := strings.Split(m.View(), "\n")
-	left, widest := m.width, 0
-	for _, line := range lines[m.headerHeight()+1 : len(lines)-3] {
-		if strings.TrimSpace(line) == "" {
+// contentEdge is the column where the content block of a titled screen starts: the
+// least indent of its non-blank lines, between the title band and the bar.
+func contentEdge(m Model, view string) int {
+	lines := strings.Split(view, "\n")
+	edge := m.width
+	for _, line := range lines[m.headerHeight()+3 : len(lines)-len(m.bar())] {
+		plain := sgr.ReplaceAllString(line, "")
+		if strings.TrimSpace(plain) == "" {
 			continue
 		}
-		left = min(left, leadingSpaces(line))
-		widest = max(widest, lipgloss.Width(line))
+		edge = min(edge, leadingSpaces(plain))
 	}
-	return left, m.width - widest
+	return edge
 }
 
 func TestSkillInfoShowsTheVaultSkill(t *testing.T) {

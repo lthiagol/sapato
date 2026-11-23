@@ -13,8 +13,6 @@ func (m Model) wizardBody(w int) []string {
 	nameText, nameStyle := m.nameCheck()
 	descText, descStyle := m.descCheck()
 	lines := []string{
-		m.styles.bold.Render(truncate("New skill", w)),
-		"",
 		m.fieldLabel(z.focus == 0, "name", w),
 		z.name.View(),
 		nameStyle.Render(truncate(nameText, w)),

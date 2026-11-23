@@ -686,25 +686,24 @@ func TestDialogsFitTheWidth(t *testing.T) {
 	}
 }
 
-// TestDialogBlocksAreCentered checks that each dialog is one block, centered, and
-// at least dialogMinW wide or the terminal when narrower. An input dialog is exactly
-// that wide.
+// TestDialogBlocksAreCentered checks that each titled screen is one block of the same
+// width, centered: two thirds of the terminal, at least dialogMinW, never wider than
+// the terminal. Its content starts at the block's left edge.
 func TestDialogBlocksAreCentered(t *testing.T) {
 	longPath := strings.Repeat("a-very-long-path-segment/", 12)
 	defaultRows := []ops.Row{row("alpha", "claude", ops.Unmanaged), row("beta", "claude", ops.Synced)}
 	tests := []struct {
-		name  string
-		rows  []ops.Row
-		keys  []string
-		want  mode
-		input bool // the input sets the block width
+		name string
+		rows []ops.Row
+		keys []string
+		want mode
 		// setup runs after the keys, for a value that fills the block.
 		setup func(m Model) Model
 	}{
 		{name: "ADOPT", keys: []string{"a"}, want: modeAdopt},
-		{name: "NEW", keys: []string{"n"}, want: modeNew, input: true, setup: func(m Model) Model { return typeText(t, m, strings.Repeat("x", 200)) }},
-		{name: "IMPORT", keys: []string{"I"}, want: modeImport, input: true, setup: func(m Model) Model { m.path.SetValue(longPath); return m }},
-		{name: "EXPORT", keys: []string{"enter", "x"}, want: modeExport, input: true, setup: func(m Model) Model { m.path.SetValue(longPath); return m }},
+		{name: "NEW", keys: []string{"n"}, want: modeNew, setup: func(m Model) Model { return typeText(t, m, strings.Repeat("x", 200)) }},
+		{name: "IMPORT", keys: []string{"I"}, want: modeImport, setup: func(m Model) Model { m.path.SetValue(longPath); return m }},
+		{name: "EXPORT", keys: []string{"enter", "x"}, want: modeExport, setup: func(m Model) Model { m.path.SetValue(longPath); return m }},
 		{name: "THEME", keys: []string{"t"}, want: modeTheme},
 		{name: "HELP main", keys: []string{"?"}, want: modeHelp},
 		{name: "HELP skill", keys: []string{"enter", "?"}, want: modeHelp},
@@ -723,17 +722,12 @@ func TestDialogBlocksAreCentered(t *testing.T) {
 				if tt.setup != nil {
 					m = tt.setup(m)
 				}
-				left, right := bodyMargins(t, m)
-				if left-right > 1 || right-left > 1 {
-					t.Errorf("left margin %d, right %d; want equal within 1:\n%s", left, right, m.View())
+				want := min(size[0], max(dialogMinW, size[0]*2/3))
+				if got := m.blockWidth(); got != want {
+					t.Fatalf("block is %d wide, want %d", got, want)
 				}
-				block := size[0] - left - right
-				least := min(size[0], dialogMinW)
-				if block < least {
-					t.Errorf("block is %d wide, want at least %d", block, least)
-				}
-				if want := m.inputWidth(); tt.input && block != want {
-					t.Errorf("input block is %d wide, want %d", block, want)
+				if got, want := contentEdge(m, m.View()), (size[0]-want)/2; got != want {
+					t.Errorf("content starts at column %d, want %d:\n%s", got, want, m.View())
 				}
 			})
 		}

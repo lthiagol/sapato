@@ -140,6 +140,7 @@ type Model struct {
 	themePrev  theme.Theme                 // the palette in use when THEME opened, restored on esc
 	themeCur   int                         // cursor over theme.All while THEME is open
 	themeTop   int                         // first theme row shown
+	helpTop    int                         // first HELP line shown
 	copies     []ops.UnmanagedCopy         // the unmanaged copies of the last load, for ADOPT
 	pick       int                         // cursor over the copies ADOPT shows
 	pickTop    int                         // first ADOPT line shown
@@ -768,10 +769,15 @@ func (m Model) filterKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
+// helpKey scrolls HELP, and closes it back to the screen it opened over.
 func (m Model) helpKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.closeView) || key.Matches(msg, m.keys.help) {
 		m.mode = modeNormal
+		m.helpTop = 0
+		return m, nil
 	}
+	n := len(m.helpLines(m.layoutWidth()))
+	m.helpTop = m.scrollKeys(msg, m.helpTop, m.helpRows(n), n)
 	return m, nil
 }
 
@@ -1016,6 +1022,29 @@ func scrollWindow(top *int, cursor, vis int) {
 	if cursor >= *top+vis {
 		*top = cursor - vis + 1
 	}
+}
+
+// scrollKeys moves the first row shown of n rows, of which rows fit, for a scroll key:
+// up and down a row, pgup and pgdn a page, top and bottom to the ends. Any other key
+// leaves top as it is.
+func (m Model) scrollKeys(msg tea.KeyMsg, top, rows, n int) int {
+	k := m.keys
+	last := max(0, n-rows)
+	switch {
+	case key.Matches(msg, k.up):
+		return clampIndex(top-1, last+1)
+	case key.Matches(msg, k.down):
+		return clampIndex(top+1, last+1)
+	case key.Matches(msg, k.pageUp):
+		return clampIndex(top-rows, last+1)
+	case key.Matches(msg, k.pageDown):
+		return clampIndex(top+rows, last+1)
+	case key.Matches(msg, k.top):
+		return 0
+	case key.Matches(msg, k.bottom):
+		return last
+	}
+	return top
 }
 
 // clampIndex keeps i in [0, n-1], or at 0 when n is 0.

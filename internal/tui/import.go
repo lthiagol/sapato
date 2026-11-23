@@ -366,14 +366,14 @@ func (m Model) listRows() int {
 	if m.height == 0 {
 		return max(1, len(m.multi.cands))
 	}
-	return max(1, m.bodyHeight()-4)
+	return max(1, m.bodyHeight()-6)
 }
 
-// browseRows is how many rows of the file picker fit under its title and folder.
-// Before the first size message it is every row.
+// browseRows is how many rows of the file picker fit under the title band, its folder
+// and a blank line. Before the first size message it is every row.
 func (m Model) browseRows() int {
 	if m.height == 0 {
 		return max(1, len(m.browse.entries))
 	}
-	return max(1, m.bodyHeight()-3)
+	return max(1, m.bodyHeight()-4)
 }

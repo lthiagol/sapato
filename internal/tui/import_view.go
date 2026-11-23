@@ -13,7 +13,7 @@ import (
 // invalid row is dimmed. The rows are a window that follows the cursor.
 func (m Model) importListBody(w int) []string {
 	l := m.multi
-	lines := []string{m.styles.bold.Render(truncate("Several skills in "+l.src, w)), ""}
+	lines := []string{m.styles.dim.Render(truncate("Several skills in "+l.src, w)), ""}
 	relW := 0
 	for _, c := range l.cands {
 		relW = max(relW, lipgloss.Width(c.Rel))
@@ -60,11 +60,21 @@ func (m Model) candStatus(c ops.Candidate) (string, lipgloss.Style) {
 	return c.Name, m.styles.text
 }
 
+// fixName is the name the fix-up form repairs, for its title: the frontmatter name, or
+// the folder's name hint when there is none.
+func (m Model) fixName() string {
+	c := m.fixup.cand
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Hint
+}
+
 // fixBody is the fix-up form: the problems of the skill, then its editable name and
 // description. A problem longer than w is cut with an ellipsis.
 func (m Model) fixBody(w int) []string {
 	f := m.fixup
-	lines := []string{m.styles.bold.Render(truncate("Fix the skill before it is imported", w)), ""}
+	lines := []string{m.styles.dim.Render(truncate("Fix the skill before it is imported", w)), ""}
 	for _, p := range f.cand.Problems {
 		lines = append(lines, m.styles.fail.Render(truncate(p, w)))
 	}
@@ -83,7 +93,6 @@ func (m Model) fixBody(w int) []string {
 func (m Model) browseBody(w int) []string {
 	b := m.browse
 	lines := []string{
-		m.styles.bold.Render(truncate("Choose a source", w)),
 		m.styles.dim.Render(truncate(b.dir, w)),
 		"",
 	}
