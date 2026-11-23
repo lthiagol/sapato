@@ -258,6 +258,68 @@ func (m *Model) scrollPick() {
 	scrollWindow(&m.pickTop, cursor, m.pickRows())
 }
 
+// The rows of ADD, top to bottom. Adopt is the last row.
+const (
+	rowCreate = iota
+	rowImport
+	rowAdopt
+)
+
+// openAdd opens ADD with its cursor on Create.
+func (m Model) openAdd() Model {
+	m.mode = modeAdd
+	m.addCur = rowCreate
+	return m
+}
+
+// adoptable reports whether ADOPT has a copy to show. The Adopt row of ADD is dimmed and
+// skipped while it has none.
+func (m Model) adoptable() bool {
+	return len(m.copies) > 0
+}
+
+// addKey moves the cursor over the rows of ADD, skipping Adopt while it is not
+// adoptable. enter opens the row under the cursor, and c, i and a open Create, Import
+// and Adopt. esc returns to the main screen.
+func (m Model) addKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	k := m.keys
+	last := rowImport
+	if m.adoptable() {
+		last = rowAdopt
+	}
+	switch {
+	case key.Matches(msg, k.up):
+		m.addCur = max(0, m.addCur-1)
+	case key.Matches(msg, k.down):
+		m.addCur = min(m.addCur+1, last)
+	case key.Matches(msg, k.enter):
+		return m.addOpen(min(m.addCur, last))
+	case key.Matches(msg, k.addCreate):
+		return m.addOpen(rowCreate)
+	case key.Matches(msg, k.addImport):
+		return m.addOpen(rowImport)
+	case key.Matches(msg, k.adopt):
+		return m.addOpen(rowAdopt)
+	case key.Matches(msg, k.esc):
+		m.mode = modeNormal
+	}
+	return m, nil
+}
+
+// addOpen opens the screen of row. Adopt does nothing while there is no unmanaged skill.
+func (m Model) addOpen(row int) (Model, tea.Cmd) {
+	switch row {
+	case rowCreate:
+		return m.openNew()
+	case rowImport:
+		return m.openImport()
+	}
+	if !m.adoptable() {
+		return m, nil
+	}
+	return m.openAdopt(), nil
+}
+
 // openNew opens NEW on the wizard, empty, and clears the paste mode's text.
 func (m Model) openNew() (Model, tea.Cmd) {
 	m.mode = modeNew

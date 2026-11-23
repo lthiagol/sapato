@@ -12,8 +12,11 @@ type keyMap struct {
 	help, quit, forceQuit key.Binding
 	// log opens the LOG view of the notifications.
 	log key.Binding
-	// The main screen's keys for work that is not built yet.
+	// newSkill opens ADD. adopt and importTar still open their screens from the main
+	// screen, without a bar hint.
 	adopt, newSkill, importTar, theme key.Binding
+	// The ADD keys: addCreate and addImport open NEW and IMPORT. The adopt key opens ADOPT.
+	addCreate, addImport key.Binding
 	// The skill screen's keys. adopt is also a main key, above.
 	mark, install, uninstall key.Binding
 	update, diff, installAll key.Binding
@@ -51,9 +54,12 @@ func newKeyMap() keyMap {
 		log:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "log")),
 
 		adopt:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "adopt")),
-		newSkill:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+		newSkill:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "add")),
 		importTar: key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "import")),
 		theme:     key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "theme")),
+
+		addCreate: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "create")),
+		addImport: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import")),
 
 		mark:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "mark")),
 		install:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "install")),
@@ -98,6 +104,7 @@ var (
 	// scrollHint is a help-only entry for the pager's scroll keys.
 	scrollHint = key.NewBinding(key.WithHelp("↑↓ pgup/pgdn", "scroll"))
 	// The dialog hints name the keys that the dialogs match with the bindings above.
+	addHint     = key.NewBinding(key.WithHelp("enter", "choose"))
 	adoptHint   = key.NewBinding(key.WithHelp("enter", "adopt"))
 	agentHint   = key.NewBinding(key.WithHelp("tab/←→", "agent"))
 	runHint     = key.NewBinding(key.WithHelp("enter", "run"))
@@ -120,7 +127,7 @@ var (
 // mainHints lists the main screen's own bindings in hint order: the actions the bar
 // shows in its first row.
 func (k keyMap) mainHints() []key.Binding {
-	return []key.Binding{k.enter, k.filter, k.refresh, k.adopt, k.newSkill, k.importTar}
+	return []key.Binding{k.enter, k.filter, k.refresh, k.newSkill}
 }
 
 // mainGlobals lists the main screen's global bindings, which the bar shows in its

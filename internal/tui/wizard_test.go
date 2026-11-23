@@ -25,7 +25,7 @@ func wizardEditor(m *Model) *[]string {
 }
 
 func TestWizardOpensWithEveryAgentChecked(t *testing.T) {
-	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n")
+	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n", "c")
 	if m.mode != modeNew || m.newPaste {
 		t.Fatalf("mode %v, paste %t; want the wizard", m.mode, m.newPaste)
 	}
@@ -52,7 +52,7 @@ func TestWizardNameCheck(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := press(t, loaded(t, b, dialogAgents), "n")
+			m := press(t, loaded(t, b, dialogAgents), "n", "c")
 			m.wiz.name.SetValue(tt.text)
 			if text, _ := m.nameCheck(); !strings.HasPrefix(text, tt.want) {
 				t.Errorf("check = %q, want prefix %q", text, tt.want)
@@ -73,7 +73,7 @@ func TestWizardDescriptionCount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n")
+			m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n", "c")
 			m.wiz.desc.SetValue(tt.text)
 			if text, _ := m.descCheck(); text != tt.want {
 				t.Errorf("count = %q, want %q", text, tt.want)
@@ -83,7 +83,7 @@ func TestWizardDescriptionCount(t *testing.T) {
 }
 
 func TestWizardFieldsMoveAndToggle(t *testing.T) {
-	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n")
+	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n", "c")
 	m = press(t, m, "j", "k")
 	if m.wiz.name.Value() != "jk" || m.wiz.focus != 0 {
 		t.Errorf("j and k typed into name %q at focus %d; want jk at 0", m.wiz.name.Value(), m.wiz.focus)
@@ -106,7 +106,7 @@ func TestWizardFieldsMoveAndToggle(t *testing.T) {
 }
 
 func TestWizardTabKeepsEachModesText(t *testing.T) {
-	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n", "tab")
+	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n", "c", "tab")
 	m = typeText(t, m, "pasted")
 	m = press(t, m, "tab")
 	if m.newPaste {
@@ -124,7 +124,7 @@ func TestWizardTabKeepsEachModesText(t *testing.T) {
 
 func TestWizardNeedsAnAgent(t *testing.T) {
 	b := &fakeBackend{}
-	m := press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "n"), "alpha"), "down", "down", "space", "down", "space", "ctrl+s")
+	m := press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "n", "c"), "alpha"), "down", "down", "space", "down", "space", "ctrl+s")
 	if !m.lastErr() || m.lastMsg() != "pick at least one agent" {
 		t.Errorf("result %q (err %t); want the pick-an-agent error", m.lastMsg(), m.lastErr())
 	}
@@ -148,7 +148,7 @@ func TestWizardScaffoldCompatibleList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := &fakeBackend{}
-			m := press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "n"), "alpha"), "down", "down")
+			m := press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "n", "c"), "alpha"), "down", "down")
 			if tt.uncheck {
 				m = press(t, m, "down", "space")
 			}
@@ -162,7 +162,7 @@ func TestWizardScaffoldCompatibleList(t *testing.T) {
 
 func TestWizardForceFlow(t *testing.T) {
 	b := &fakeBackend{inVault: map[string]bool{"alpha": true}}
-	m := press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "n"), "alpha"), "ctrl+s")
+	m := press(t, typeText(t, press(t, loaded(t, b, dialogAgents), "n", "c"), "alpha"), "ctrl+s")
 	if m.mode != modeConfirm || !m.pending.act.force || m.pending.act.op != opScaffold {
 		t.Fatalf("mode %v, force %t, op %q; want the scaffold force prompt", m.mode, m.pending.act.force, m.pending.act.op)
 	}
@@ -193,7 +193,7 @@ func TestWizardSaveOffersTheEditor(t *testing.T) {
 	m, vaultDir, _ := fixtureModel(t)
 	m = sized(t, m, 100, 30)
 	argv := wizardEditor(&m)
-	m = press(t, m, "n")
+	m = press(t, m, "n", "c")
 	m = typeText(t, m, "fresh-wizard")
 	m = press(t, m, "down")
 	m = typeText(t, m, "Made in the wizard.")
@@ -230,7 +230,7 @@ func TestWizardEditorPromptNo(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	m, vaultDir, _ := fixtureModel(t)
 	argv := wizardEditor(&m)
-	m = press(t, typeText(t, press(t, m, "n"), "fresh-wizard"), "down")
+	m = press(t, typeText(t, press(t, m, "n", "c"), "fresh-wizard"), "down")
 	m = press(t, typeText(t, m, "Declined."), "ctrl+s")
 	if m.mode != modeConfirm || m.pending.act.op != opEdit {
 		t.Fatalf("mode %v, op %q; want the editor prompt", m.mode, m.pending.act.op)
@@ -246,7 +246,7 @@ func TestWizardEditorPromptNo(t *testing.T) {
 }
 
 func TestWizardEscAsksWhenTyped(t *testing.T) {
-	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n")
+	m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n", "c")
 	if got := press(t, m, "esc"); got.mode != modeNormal {
 		t.Errorf("esc on an empty wizard: mode %v, want the grid", got.mode)
 	}

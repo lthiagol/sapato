@@ -35,6 +35,8 @@ func (m Model) body() []string {
 		return m.diffBody()
 	case modeHelp:
 		return m.screenBody("Help", m.helpBody)
+	case modeAdd:
+		return m.screenBody("Add a skill to the vault", m.addBody)
 	case modeAdopt:
 		return m.screenBody("Adopt unmanaged skills into the vault", m.adoptBody)
 	case modeNew:
@@ -311,7 +313,8 @@ func (m Model) helpLines(w int) []string {
 	lines = append(lines, "", m.styles.bold.Render("Keys"))
 	keys := m.hints()
 	if m.screen == screenMain {
-		keys = append(keys, m.keys.esc)
+		// a and I are not in the bar, but they still work on the main screen.
+		keys = append(keys, m.keys.adopt, m.keys.importTar, m.keys.esc)
 	}
 	for _, b := range keys {
 		h := b.Help()
@@ -497,6 +500,8 @@ func (m Model) barHints() (own, global []key.Binding) {
 		return []key.Binding{scrollHint}, []key.Binding{m.keys.closeView, m.keys.log}
 	case modeHelp:
 		return []key.Binding{scrollHint}, []key.Binding{m.keys.closeView, m.keys.log}
+	case modeAdd:
+		return []key.Binding{addHint}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeAdopt:
 		return []key.Binding{adoptHint, m.keys.mark, agentHint}, []key.Binding{moveHint, backHint, m.keys.log}
 	case modeNew:

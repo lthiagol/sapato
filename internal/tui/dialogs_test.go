@@ -177,6 +177,139 @@ func typeText(t *testing.T, m Model, text string) Model {
 // dialogAgents are the agents the dialog tests run over.
 var dialogAgents = []config.Agent{claude, cursorAgent}
 
+// addRows are the grid rows of the ADD tests: one unmanaged skill in claude.
+var addRows = []ops.Row{row("alpha", "claude", ops.Unmanaged), row("beta", "claude", ops.Synced)}
+
+func TestAddShowsTheThreeChoicesAndTheCount(t *testing.T) {
+	tests := []struct {
+		name string
+		rows []ops.Row
+		want []string
+	}{
+		{name: "one unmanaged", rows: addRows, want: []string{"c  Create", "i  Import", "a  Adopt", "1 unmanaged skill in your agents"}},
+		{name: "two unmanaged", rows: append(slices.Clone(addRows), row("gamma", "cursor", ops.Unmanaged)), want: []string{"2 unmanaged skills in your agents"}},
+		{name: "none", rows: []ops.Row{row("beta", "claude", ops.Synced)}, want: []string{"no unmanaged skills"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(t, loaded(t, &fakeBackend{rows: tt.rows}, dialogAgents), "n")
+			if m.mode != modeAdd {
+				t.Fatalf("mode = %v, want ADD; result %q", m.mode, m.lastMsg())
+			}
+			view := m.View()
+			for _, want := range append([]string{"Add a skill to the vault"}, tt.want...) {
+				if !strings.Contains(view, want) {
+					t.Errorf("ADD lacks %q:\n%s", want, view)
+				}
+			}
+		})
+	}
+}
+
+func TestAddKeysOpenTheirScreens(t *testing.T) {
+	tests := []struct {
+		name string
+		keys []string
+		want mode
+	}{
+		{name: "c opens NEW", keys: []string{"n", "c"}, want: modeNew},
+		{name: "i opens IMPORT", keys: []string{"n", "i"}, want: modeImport},
+		{name: "a opens ADOPT", keys: []string{"n", "a"}, want: modeAdopt},
+		{name: "enter on Create opens NEW", keys: []string{"n", "enter"}, want: modeNew},
+		{name: "down enter opens IMPORT", keys: []string{"n", "down", "enter"}, want: modeImport},
+		{name: "down down enter opens ADOPT", keys: []string{"n", "down", "down", "enter"}, want: modeAdopt},
+		{name: "up at the top stays on Create", keys: []string{"n", "up", "enter"}, want: modeNew},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(t, loaded(t, &fakeBackend{rows: addRows}, dialogAgents), tt.keys...)
+			if m.mode != tt.want {
+				t.Errorf("mode = %v, want %v; result %q", m.mode, tt.want, m.lastMsg())
+			}
+		})
+	}
+}
+
+func TestAddAdoptIsSkippedWithoutUnmanagedSkills(t *testing.T) {
+	b := &fakeBackend{rows: []ops.Row{row("beta", "claude", ops.Synced)}}
+	m := colored(t, press(t, loaded(t, b, dialogAgents), "n"))
+	if want := m.styles.dim.Render("  a  Adopt    no unmanaged skills"); !strings.Contains(m.View(), want) {
+		t.Errorf("the Adopt row is not dimmed as %q:\n%s", want, m.View())
+	}
+	tests := []struct {
+		name string
+		keys []string
+		want mode
+	}{
+		{name: "a does nothing", keys: []string{"a"}, want: modeAdd},
+		{name: "down stops at Import", keys: []string{"down", "down", "down"}, want: modeAdd},
+		{name: "enter after down stops at Import opens IMPORT", keys: []string{"down", "down", "enter"}, want: modeImport},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(t, loaded(t, b, dialogAgents), "n")
+			if m = press(t, m, tt.keys...); m.mode != tt.want {
+				t.Errorf("mode = %v, want %v; result %q", m.mode, tt.want, m.lastMsg())
+			}
+			if m.addCur > rowImport {
+				t.Errorf("cursor on row %d, want it off the Adopt row", m.addCur)
+			}
+		})
+	}
+}
+
+func TestAddEscReturnsToTheMainScreen(t *testing.T) {
+	tests := []struct {
+		name string
+		keys []string
+	}{
+		{name: "esc on ADD", keys: []string{"n", "esc"}},
+		{name: "esc on NEW", keys: []string{"n", "c", "esc"}},
+		{name: "esc on IMPORT", keys: []string{"n", "i", "esc"}},
+		{name: "esc on ADOPT", keys: []string{"n", "a", "esc"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := press(t, loaded(t, &fakeBackend{rows: addRows}, dialogAgents), tt.keys...)
+			if m.mode != modeNormal || m.screen != screenMain {
+				t.Errorf("mode = %v, screen = %v; want the main screen", m.mode, m.screen)
+			}
+		})
+	}
+}
+
+func TestMainBarAndHelpListTheShortcuts(t *testing.T) {
+	m, _ := layoutModel(t, 120, 40)
+	bar := strings.Join(plainBar(m, m.View()), "\n")
+	if !strings.Contains(bar, "n add") {
+		t.Errorf("bar lacks %q:\n%s", "n add", bar)
+	}
+	for _, gone := range []string{"a adopt", "I import"} {
+		if strings.Contains(bar, gone) {
+			t.Errorf("bar shows %q, want it only in HELP:\n%s", gone, bar)
+		}
+	}
+	help := press(t, m, "?")
+	for _, key := range []struct{ key, desc string }{{"a", "adopt"}, {"I", "import"}, {"n", "add"}} {
+		if !slices.ContainsFunc(strings.Split(help.View(), "\n"), func(l string) bool {
+			f := strings.Fields(l)
+			return len(f) == 2 && f[0] == key.key && f[1] == key.desc
+		}) {
+			t.Errorf("HELP lacks the %s %s line:\n%s", key.key, key.desc, help.View())
+		}
+	}
+}
+
+func TestAddBarShowsItsChoices(t *testing.T) {
+	m := press(t, loaded(t, &fakeBackend{rows: addRows}, dialogAgents), "n")
+	bar := strings.Join(plainBar(m, m.View()), "\n")
+	for _, want := range []string{"enter choose", "↑↓/jk move", "esc back"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("ADD bar lacks %q:\n%s", want, bar)
+		}
+	}
+}
+
 func TestDialogKeysOpenTheirDialogs(t *testing.T) {
 	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Synced)}}
 	tests := []struct {
@@ -185,7 +318,9 @@ func TestDialogKeysOpenTheirDialogs(t *testing.T) {
 		want mode
 	}{
 		{name: "main a opens ADOPT", keys: []string{"a"}, want: modeAdopt},
-		{name: "main n opens NEW", keys: []string{"n"}, want: modeNew},
+		{name: "main n opens ADD", keys: []string{"n"}, want: modeAdd},
+		{name: "ADD c opens NEW", keys: []string{"n", "c"}, want: modeNew},
+		{name: "ADD i opens IMPORT", keys: []string{"n", "i"}, want: modeImport},
 		{name: "main I opens IMPORT", keys: []string{"I"}, want: modeImport},
 		{name: "main t opens THEME", keys: []string{"t"}, want: modeTheme},
 		{name: "skill x opens EXPORT", keys: []string{"enter", "x"}, want: modeExport},
@@ -385,7 +520,7 @@ func TestAdoptPickerShowsConflictTag(t *testing.T) {
 
 func TestNewCancelsAndDiscards(t *testing.T) {
 	b := &fakeBackend{}
-	m := press(t, loaded(t, b, dialogAgents), "n")
+	m := press(t, loaded(t, b, dialogAgents), "n", "c")
 	if m.mode != modeNew {
 		t.Fatalf("mode = %v, want NEW", m.mode)
 	}
@@ -422,7 +557,7 @@ func TestNewLiveCheck(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n")
+			m := press(t, loaded(t, &fakeBackend{}, dialogAgents), "n", "c")
 			m.area.SetValue(tt.text)
 			text, _ := m.newCheck()
 			if !strings.HasPrefix(text, tt.want) {
@@ -434,7 +569,7 @@ func TestNewLiveCheck(t *testing.T) {
 
 func TestNewSaveShowsErrorAndKeepsEditor(t *testing.T) {
 	b := &fakeBackend{}
-	m := press(t, loaded(t, b, dialogAgents), "n", "tab")
+	m := press(t, loaded(t, b, dialogAgents), "n", "c", "tab")
 	m = typeText(t, m, "not a skill")
 	m = press(t, m, "ctrl+s")
 	if m.mode != modeNew || !m.lastErr() || !strings.Contains(m.lastMsg(), "invalid skill") {
@@ -446,7 +581,7 @@ func TestNewSaveCreatesSkillOnFixtureCopy(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	m, vaultDir, _ := fixtureModel(t)
 	m = sized(t, m, 100, 30)
-	m = typeText(t, press(t, m, "n", "tab"), freshSkill)
+	m = typeText(t, press(t, m, "n", "c", "tab"), freshSkill)
 	if text, _ := m.newCheck(); text != "valid: fresh-skill" {
 		t.Fatalf("live check = %q, want valid", text)
 	}
@@ -465,7 +600,7 @@ func TestNewSaveCreatesSkillOnFixtureCopy(t *testing.T) {
 func TestNewSaveOfExistingNameNeedsForce(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	m, vaultDir, _ := fixtureModel(t)
-	m = press(t, m, "n", "tab")
+	m = press(t, m, "n", "c", "tab")
 	m = typeText(t, m, strings.ReplaceAll(freshSkill, "fresh-skill", "mocked-skill-00004"))
 	m = press(t, m, "ctrl+s")
 	if m.mode != modeConfirm || !m.pending.act.force {
@@ -650,12 +785,13 @@ func TestDialogsFitTheWidth(t *testing.T) {
 		want  mode
 		setup func(m Model) Model
 	}{
+		{name: "ADD", keys: []string{"n"}, want: modeAdd},
 		{name: "ADOPT", keys: []string{"a"}, want: modeAdopt},
-		{name: "NEW", keys: []string{"n"}, want: modeNew, setup: func(m Model) Model { return typeText(t, m, strings.Repeat("x", 200)) }},
+		{name: "NEW", keys: []string{"n", "c"}, want: modeNew, setup: func(m Model) Model { return typeText(t, m, strings.Repeat("x", 200)) }},
 		{name: "IMPORT", keys: []string{"I"}, want: modeImport, setup: func(m Model) Model { m.path.SetValue(long); return m }},
 		{name: "THEME", keys: []string{"t"}, want: modeTheme},
 		{name: "EXPORT", keys: []string{"enter", "x"}, want: modeExport, setup: func(m Model) Model { m.path.SetValue(long); return m }},
-		{name: "discard", keys: []string{"n", "tab", "x", "esc"}, want: modeConfirm},
+		{name: "discard", keys: []string{"n", "c", "tab", "x", "esc"}, want: modeConfirm},
 		{name: "HELP", keys: []string{"?"}, want: modeHelp},
 		{name: "skill HELP", keys: []string{"enter", "?"}, want: modeHelp},
 		{name: "plain confirm", rows: []ops.Row{row(longSkill, "claude", ops.NotInstalled)}, keys: []string{"enter", "D"}, want: modeConfirm},
@@ -700,8 +836,9 @@ func TestDialogBlocksAreCentered(t *testing.T) {
 		// setup runs after the keys, for a value that fills the block.
 		setup func(m Model) Model
 	}{
+		{name: "ADD", keys: []string{"n"}, want: modeAdd},
 		{name: "ADOPT", keys: []string{"a"}, want: modeAdopt},
-		{name: "NEW", keys: []string{"n"}, want: modeNew, setup: func(m Model) Model { return typeText(t, m, strings.Repeat("x", 200)) }},
+		{name: "NEW", keys: []string{"n", "c"}, want: modeNew, setup: func(m Model) Model { return typeText(t, m, strings.Repeat("x", 200)) }},
 		{name: "IMPORT", keys: []string{"I"}, want: modeImport, setup: func(m Model) Model { m.path.SetValue(longPath); return m }},
 		{name: "EXPORT", keys: []string{"enter", "x"}, want: modeExport, setup: func(m Model) Model { m.path.SetValue(longPath); return m }},
 		{name: "THEME", keys: []string{"t"}, want: modeTheme},
@@ -753,7 +890,7 @@ func TestConfirmBoxIsCentered(t *testing.T) {
 		{name: "plain uninstall", rows: []ops.Row{row(longSkill, "claude", ops.Synced)}, keys: []string{"enter", "u"}, title: "Uninstall", under: "AGENTS"},
 		{name: "plain remove", rows: []ops.Row{row(longSkill, "claude", ops.NotInstalled)}, keys: []string{"enter", "D"}, title: "Remove", under: "AGENTS"},
 		{name: "force confirm", rows: []ops.Row{row(longSkill, "claude", ops.Synced)}, keys: []string{"enter", "D"}, title: "Force remove", force: true, under: "AGENTS"},
-		{name: "discard confirm", keys: []string{"n", "tab", "x", "esc"}, title: "Discard", under: "invalid:"},
+		{name: "discard confirm", keys: []string{"n", "c", "tab", "x", "esc"}, title: "Discard", under: "invalid:"},
 		{name: "config prompt", start: firstRun(false, true), title: "Create config", under: "SKILL", text: []string{"defaults for this run."}},
 		{name: "vault prompt", start: firstRun(true, false), title: "Create vault", under: "SKILL", text: []string{"Creates sapato.toml", "exits."}},
 	}

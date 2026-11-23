@@ -475,7 +475,8 @@ func TestLogHintOnTheModesThatOpenLog(t *testing.T) {
 		{name: "help", steps: []string{"?"}, wantLog: true},
 		{name: "adopt", steps: []string{"a"}, wantLog: true},
 		{name: "theme", steps: []string{"t"}, wantLog: true},
-		{name: "new", steps: []string{"n"}, wantLog: false},
+		{name: "add", steps: []string{"n"}, wantLog: true},
+		{name: "new", steps: []string{"n", "c"}, wantLog: false},
 		{name: "import", steps: []string{"I"}, wantLog: false},
 	}
 	for _, tt := range tests {

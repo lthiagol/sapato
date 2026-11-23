@@ -46,6 +46,7 @@ const (
 	modeConfirm
 	modeDiff
 	modeHelp
+	modeAdd
 	modeAdopt
 	modeNew
 	modeImport
@@ -146,6 +147,7 @@ type Model struct {
 	pickTop    int                         // first ADOPT line shown
 	pickFilter int                         // the agent ADOPT shows: 0 for all, else the nth agent plus one
 	pickMarks  map[cell]bool               // the copies marked in ADOPT
+	addCur     int                         // the choice under the cursor in ADD
 	area       textarea.Model              // the paste mode of NEW
 	newPaste   bool                        // NEW shows the paste mode instead of the wizard
 	wiz        newWizard                   // the NEW wizard
@@ -333,6 +335,8 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.diffKey(msg)
 	case modeHelp:
 		return m.helpKey(msg)
+	case modeAdd:
+		return m.addKey(msg)
 	case modeAdopt:
 		return m.adoptKey(msg)
 	case modeNew:
@@ -393,7 +397,7 @@ func (m Model) mainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, k.adopt):
 		return m.openAdopt(), nil
 	case key.Matches(msg, k.newSkill):
-		return m.openNew()
+		return m.openAdd(), nil
 	case key.Matches(msg, k.importTar):
 		return m.openImport()
 	case key.Matches(msg, k.theme):

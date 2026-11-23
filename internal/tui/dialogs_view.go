@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -126,6 +127,52 @@ func (m Model) centered(lines []string, blockW int) []string {
 		out[i] = indent + pad(l, blockW)
 	}
 	return out
+}
+
+// addChoice is a row of ADD: its key, its name and what it does. off dims the row.
+type addChoice struct {
+	key, name, desc string
+	off             bool
+}
+
+// addBody is ADD: the three choices, one row each, left-aligned in the block like every
+// titled screen. The Adopt row is dimmed and says there is nothing to adopt while no
+// unmanaged skill is listed.
+func (m Model) addBody(w int) []string {
+	adopt := addChoice{key: "a", name: "Adopt", desc: fmt.Sprintf("%d unmanaged skills in your agents", len(m.copies))}
+	switch len(m.copies) {
+	case 0:
+		adopt.desc, adopt.off = "no unmanaged skills", true
+	case 1:
+		adopt.desc = "1 unmanaged skill in your agents"
+	}
+	choices := []addChoice{
+		{key: "c", name: "Create", desc: "write a new skill (wizard)"},
+		{key: "i", name: "Import", desc: "from a folder, file, git or URL"},
+		adopt,
+	}
+	rows := make([]string, len(choices))
+	for i, c := range choices {
+		rows[i] = ansi.Truncate(m.addRow(c, i == m.addCur), w, "…")
+	}
+	return rows
+}
+
+// addRow is one choice of ADD: the cursor marker, the key, the name and the description.
+// The name lines up across the rows. An off row is dimmed and has no marker.
+func (m Model) addRow(c addChoice, selected bool) string {
+	if c.off {
+		return m.styles.dim.Render("  " + c.key + "  " + pad(c.name, 9) + c.desc)
+	}
+	marker, nameStyle := "  ", m.styles.text
+	if selected {
+		marker, nameStyle = pad(m.icons.Marker, 2), m.styles.bold
+	}
+	return m.on(selected, m.styles.accent).Render(marker) +
+		m.on(selected, m.styles.hintKey).Render(c.key) +
+		m.spaces(2, selected) +
+		m.on(selected, nameStyle).Render(pad(c.name, 9)) +
+		m.on(selected, m.styles.subtext).Render(c.desc)
 }
 
 // adoptBody is the ADOPT picker: a filter row over the agents, then a heading per

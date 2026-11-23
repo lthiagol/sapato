@@ -290,7 +290,7 @@ func TestLogIsIgnoredWhereItIsText(t *testing.T) {
 		keys []string
 		want mode
 	}{
-		{name: "NEW editor", keys: []string{"n", "L"}, want: modeNew},
+		{name: "NEW editor", keys: []string{"n", "c", "L"}, want: modeNew},
 		{name: "IMPORT path", keys: []string{"I", "L"}, want: modeImport},
 		{name: "filter", keys: []string{"/", "L"}, want: modeFilter},
 	}

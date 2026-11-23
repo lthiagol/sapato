@@ -213,7 +213,7 @@ func (m Model) noteStyle(kind noteKind) lipgloss.Style {
 // answer, and the text inputs take L as text, so neither lists it.
 func logOpensFrom(md mode) bool {
 	switch md {
-	case modeNormal, modeDiff, modeHelp, modeAdopt, modeImportList, modeImportBrowse, modeTheme:
+	case modeNormal, modeDiff, modeHelp, modeAdd, modeAdopt, modeImportList, modeImportBrowse, modeTheme:
 		return true
 	}
 	return false
