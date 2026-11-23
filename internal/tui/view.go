@@ -132,14 +132,14 @@ func (m Model) rule() string {
 }
 
 // mainBody is the grid: a column-header row, a rule, then the skill rows of the
-// scrolling window. The grid block is centered.
+// scrolling window. The grid's text is centered.
 func (m Model) mainBody() []string {
 	nameW, colW := m.layout()
 	total := 2 + nameW
 	for _, w := range colW {
 		total += w
 	}
-	pad := m.leftPad(total)
+	pad := m.gridPad(total, colW)
 	lines := []string{pad + m.headerRow(nameW, colW), m.rule()}
 	switch {
 	case len(m.agents) == 0:
@@ -180,6 +180,34 @@ func (m Model) leftPad(blockW int) string {
 		return ""
 	}
 	return strings.Repeat(" ", max(0, (m.width-blockW)/2))
+}
+
+// gridPad is the indent that centers the grid's text: the span from the first
+// SKILL character (column 2 of the block) to the last agent's icon. The marker
+// gutter sits left of the span and the last column's trailing blank right of it,
+// so neither counts. The indent never pushes the grid past the terminal's edge.
+func (m Model) gridPad(total int, colW []int) string {
+	if m.width == 0 {
+		return ""
+	}
+	textEnd := total - 1
+	if n := len(colW); n > 0 {
+		iconW, last := m.iconWidth(), colW[n-1]
+		textEnd = total - last + (last-iconW)/2 + iconW - 1
+	}
+	indent := max(0, (m.width-3-textEnd)/2)
+	indent = max(0, min(indent, m.width-total))
+	return strings.Repeat(" ", indent)
+}
+
+// iconWidth is the width of the widest status glyph, so every row's icons share
+// one span.
+func (m Model) iconWidth() int {
+	w := 1
+	for _, g := range m.icons.Status {
+		w = max(w, lipgloss.Width(g))
+	}
+	return w
 }
 
 func (m Model) headerRow(nameW int, colW []int) string {

@@ -2,6 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"math"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -104,18 +107,95 @@ func TestCompactHeaderDropsTaglineWhenItDoesNotFit(t *testing.T) {
 	}
 }
 
-func TestGridIsCentered(t *testing.T) {
-	for _, size := range layoutSizes {
-		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
-			m, _ := layoutModel(t, size[0], size[1])
+// wordSpan is a space-separated word of a rendered line and its first and last
+// display columns.
+type wordSpan struct {
+	word       string
+	start, end int
+}
+
+// wordSpans returns the words of line with their columns.
+func wordSpans(line string) []wordSpan {
+	var spans []wordSpan
+	col := 0
+	for _, f := range strings.Split(line, " ") {
+		if f != "" {
+			spans = append(spans, wordSpan{f, col, col + lipgloss.Width(f) - 1})
+		}
+		col += lipgloss.Width(f) + 1
+	}
+	return spans
+}
+
+func TestGridTextIsCentered(t *testing.T) {
+	cfg, err := config.Load(filepath.Join(t.TempDir(), "config.toml"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []ops.Row
+	for _, skill := range []string{"code-review", "obsidian-notes", "a-long-skill-name-for-the-grid"} {
+		for _, a := range cfg.Agents {
+			rows = append(rows, row(skill, a.ID, ops.Synced))
+		}
+	}
+	tests := []struct {
+		name string
+		w    int
+	}{
+		{name: "141 columns", w: 141},
+		{name: "100 columns", w: 100},
+		{name: "80 columns", w: 80},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := sized(t, loaded(t, &fakeBackend{rows: rows}, cfg.Agents), tt.w, 40)
 			view := m.View()
-			// The cursor row's marker is not a space, so its leading spaces are the
-			// indent of the whole grid block.
-			line := lineWith(t, view, "▶ a-rather")
-			left := leadingSpaces(line)
-			block := lipgloss.Width(line) - left
-			if right := size[0] - left - block; left-right > 1 || right-left > 1 {
-				t.Errorf("grid left margin %d, right %d in %q; want equal within 1", left, right, line)
+			header := wordSpans(lineWith(t, view, "SKILL"))
+			if len(header) != 1+len(cfg.Agents) {
+				t.Fatalf("header words %v, want SKILL and %d labels", header, len(cfg.Agents))
+			}
+			labels := header[1:]
+			body := wordSpans(lineWith(t, view, "code-review"))
+			at := slices.IndexFunc(body, func(s wordSpan) bool { return s.word == "code-review" })
+			icons := body[at+1:]
+			if len(icons) != len(cfg.Agents) {
+				t.Fatalf("row icons %v, want %d", icons, len(cfg.Agents))
+			}
+
+			rowMid := float64(body[at].start+icons[len(icons)-1].end) / 2
+			if center := float64(tt.w-1) / 2; math.Abs(rowMid-center) > 0.5 {
+				t.Errorf("row text midpoint %.1f, screen center %.1f", rowMid, center)
+			}
+			headerMid := float64(header[0].start+labels[len(labels)-1].end) / 2
+			if math.Abs(headerMid-rowMid) > 1.5 {
+				t.Errorf("header text midpoint %.1f, row midpoint %.1f", headerMid, rowMid)
+			}
+			for i, a := range cfg.Agents {
+				if labels[i].word != strings.ToUpper(a.ID) {
+					t.Errorf("label %d is %q, want %q", i, labels[i].word, strings.ToUpper(a.ID))
+				}
+				labelMid := float64(labels[i].start+labels[i].end) / 2
+				if math.Abs(float64(icons[i].start)-labelMid) > 0.5 {
+					t.Errorf("%s icon at column %d, label centered at %.1f", a.ID, icons[i].start, labelMid)
+				}
+			}
+			for _, line := range strings.Split(view, "\n") {
+				if lipgloss.Width(line) > tt.w {
+					t.Errorf("line is %d columns, terminal is %d: %q", lipgloss.Width(line), tt.w, line)
+				}
+			}
+		})
+	}
+}
+
+func TestGridFitsNarrowTerminal(t *testing.T) {
+	for _, w := range []int{60, 40} {
+		t.Run(fmt.Sprintf("%d columns", w), func(t *testing.T) {
+			m, _ := layoutModel(t, w, 24)
+			for _, line := range strings.Split(m.View(), "\n") {
+				if lipgloss.Width(line) > w {
+					t.Errorf("line is %d columns, terminal is %d: %q", lipgloss.Width(line), w, line)
+				}
 			}
 		})
 	}

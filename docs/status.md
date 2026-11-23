@@ -29,6 +29,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 - **Fixed details (task 26):** the cursor agent's details section is always 2 lines, so FILES stays on one row for every agent. The compat suffix sits on line 1 and the would-be path shows `(not installed)`.
 - **Title band and centered footer (task 27):** the non-main screens share one title band, and the footer hint rows are centered.
 - **ADD screen (task 28):** `n` opens ADD with Create, Import and Adopt rows and a live unmanaged count. The bar shows `n add`; `a` and `I` still work and are listed in HELP.
+- **Grid centering (task 29):** the grid's text (first SKILL character to the last agent icon) is centered, not its padded block.
 
 ## Open nits (optional, from the last review)
 
