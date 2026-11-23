@@ -332,7 +332,7 @@ All mutations go through `ops`, exactly like the CLI. Force-overridable refusals
 
 ### 9.2 Main screen (mode `MAIN`)
 
-- Grid: a column-header row between two rules, then the skill rows in a scrolling viewport. Columns: `SKILL` (width = longest name, capped; overflow truncated with `…`), then one column per configured agent (width = max(len(id), 3) + 2; icon centered). The whole grid block is horizontally centered.
+- Grid: a column-header row between two rules, then the skill rows in a scrolling viewport. Columns: `SKILL` (width = longest name, capped; overflow truncated with `…`), then one column per configured agent (width = max(len(id), 3) + 2; the header label and every icon are centered in the column, using the same rounding, so each icon sits under its label's center). The block is: a 2-col marker gutter (`▶ ` on the cursor row), the columns, and a matching 2-col right gutter; that block is horizontally centered, so the header text and the rows' content share one center with the screen (±1 col for odd widths).
 - Cursor is per row (skill). No column cursor. Selected row uses the surface color background and a `▶`/`>` marker.
 - Status icon per cell (§9.5) colored by status. Empty cell (pair absent everywhere) = blank.
 - Keys: `↑↓`/`jk` move, `g`/`G` top/bottom, `pgup`/`pgdn`, `enter` open skill screen, `/` filter (substring; `esc` clears), `r` refresh, `n` add a skill (ADD screen, §9.4), `t` theme picker; `a` (ADOPT) and `I` (IMPORT) still work as shortcuts but are not in the bar (listed in HELP), `?` help, `q` quit.
