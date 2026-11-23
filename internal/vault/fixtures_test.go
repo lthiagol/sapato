@@ -27,6 +27,7 @@ func TestSkillDBFixture(t *testing.T) {
 		valid       bool
 		wantProblem string // substring of the only problem; empty when valid
 		wantVersion string
+		compat      []string // CompatAgents; nil = every agent
 	}{
 		{name: "Invalid-Uppercase", wantProblem: "must match"},
 		{name: "invalid-long-description", wantProblem: "description is 1025 characters, max 1024"},
@@ -37,8 +38,8 @@ func TestSkillDBFixture(t *testing.T) {
 		{name: "mocked-skill-00001", valid: true},
 		{name: "mocked-skill-00002", valid: true, wantVersion: "1.2.0"},
 		{name: "mocked-skill-00003", valid: true},
-		{name: "mocked-skill-00004", valid: true},
-		{name: "mocked-skill-00005", valid: true},
+		{name: "mocked-skill-00004", valid: true, compat: []string{"claude"}},
+		{name: "mocked-skill-00005", valid: true, compat: []string{"claude", "cursor"}},
 		{name: "mocked-skill-00006", valid: true},
 	}
 
@@ -69,6 +70,9 @@ func TestSkillDBFixture(t *testing.T) {
 			}
 			if s.Version != tt.wantVersion {
 				t.Errorf("Version = %q, want %q", s.Version, tt.wantVersion)
+			}
+			if got := v.CompatAgents(tt.name); !reflect.DeepEqual(got, tt.compat) {
+				t.Errorf("CompatAgents = %v, want %v", got, tt.compat)
 			}
 		})
 	}

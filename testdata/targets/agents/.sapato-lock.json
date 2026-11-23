@@ -5,6 +5,11 @@
       "hash": "sha256:0c90b5bb9e286edfbc151dcbf101bd1c794b894297bbe763fdfee3205b03f0d8",
       "version": "",
       "installed_at": "2026-11-21T13:00:00Z"
+    },
+    "mocked-skill-00005": {
+      "hash": "sha256:29a2edb4d071d8d97a9b1779da3380693adf306581f1a00a2cf8a698d9f0ae07",
+      "version": "",
+      "installed_at": "2026-11-21T13:00:00Z"
     }
   }
 }

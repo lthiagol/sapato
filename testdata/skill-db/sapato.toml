@@ -20,3 +20,9 @@ agents = ["*"]
 # Example:
 #   [skills.code-review]
 #   compatible = ["claude"]
+
+[skills.mocked-skill-00004]
+compatible = ["claude"]
+
+[skills.mocked-skill-00005]
+compatible = ["claude", "cursor"]

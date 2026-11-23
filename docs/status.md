@@ -25,6 +25,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 - **Guide (task 22):** `sapato guide` prints a generated `SKILL.md` for this vault and its configured agents. `--install` writes it as the vault skill `sapato`: identical content is a no-op, different content needs `--force`.
 - **Bottom bar v3 (task 23):** the counts ride the bar's rule, and one left-aligned hint row carries the actions, a `│` and the dimmer globals. The globals wrap, then drop `t theme` and `L log`, when the row is narrow.
 - **Default config and vault manifest (task 24):** `sapato config default` prints the §2.1 text, which `config init`, `--dry-run` and the first-launch prompt write too. `sapato init` writes the §3.1 manifest.
+- **Fixture compatibility (task 25):** mocked-skill-00004 is compatible with claude only and mocked-skill-00005 with claude and cursor. mocked-skill-00005 is installed in `agents`, so `doctor` warns.
 
 ## Open nits (optional, from the last review)
 

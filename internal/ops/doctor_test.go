@@ -249,6 +249,7 @@ func TestDoctorFixtures(t *testing.T) {
 		"error invalid-skill - invalid-name-mismatch",
 		"error invalid-skill - invalid-no-frontmatter",
 		"error invalid-skill - invalid-no-skill-md",
+		"warn incompatible agents mocked-skill-00005",
 		"warn missing claude mocked-skill-00098",
 		"warn modified claude mocked-skill-00003",
 		"warn orphaned claude mocked-skill-00099",

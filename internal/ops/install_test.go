@@ -415,7 +415,7 @@ func TestInstallDryRunChangesNothing(t *testing.T) {
 	absent := config.Agent{ID: "pi", Path: filepath.Join(t.TempDir(), "absent")}
 	before := snapshot(t, claude.Path)
 
-	actions, err := Install(v, []config.Agent{claude, absent}, []string{"mocked-skill-00004", "mocked-skill-00001"}, Options{DryRun: true})
+	actions, err := Install(v, []config.Agent{claude, absent}, []string{"mocked-skill-00006", "mocked-skill-00001"}, Options{DryRun: true})
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}

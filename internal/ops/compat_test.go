@@ -483,7 +483,9 @@ func TestDoctorCompatFindings(t *testing.T) {
 	}
 	want := []string{
 		"info compat-not-configured-here codex mocked-skill-00001",
+		"info compat-not-configured-here cursor mocked-skill-00005",
 		"info incompatible-read claude mocked-skill-00001",
+		"warn incompatible agents mocked-skill-00005",
 		"warn incompatible claude mocked-skill-00001",
 	}
 	slices.Sort(want)

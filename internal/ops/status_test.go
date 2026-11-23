@@ -134,16 +134,26 @@ func TestStatusFixtures(t *testing.T) {
 	agents := []config.Agent{fixtureAgent(t, "claude"), fixtureAgent(t, "agents"), fixtureAgent(t, "cursor")}
 
 	// Pairs that differ from the default. A vault skill with no target or lock
-	// entry in an agent is not-installed if valid, invalid if not. Keys are
-	// "agent/skill".
-	special := map[string]State{
-		"claude/mocked-skill-00001": Synced,
-		"claude/mocked-skill-00002": Outdated,
-		"claude/mocked-skill-00003": Modified,
-		"claude/mocked-skill-00098": Missing,
-		"claude/mocked-skill-00099": Orphaned,
-		"claude/hand-made-skill":    Unmanaged,
-		"agents/mocked-skill-00001": Synced,
+	// entry in an agent is not-installed if valid, invalid if not, and compatible
+	// unless the fixture's compat table says otherwise. Keys are "agent/skill".
+	type expect struct {
+		status     State
+		compatible bool
+	}
+	special := map[string]expect{
+		"claude/mocked-skill-00001": {Synced, true},
+		"claude/mocked-skill-00002": {Outdated, true},
+		"claude/mocked-skill-00003": {Modified, true},
+		"claude/mocked-skill-00098": {Missing, true},
+		"claude/mocked-skill-00099": {Orphaned, true},
+		"claude/hand-made-skill":    {Unmanaged, true},
+		"agents/mocked-skill-00001": {Synced, true},
+		// Compatible with claude only; spec §6 incompatible elsewhere.
+		"claude/mocked-skill-00004": {NotInstalled, true},
+		"agents/mocked-skill-00004": {Incompatible, false},
+		"cursor/mocked-skill-00004": {Incompatible, false},
+		// Installed in agents but not compatible with it: synced, compatible false.
+		"agents/mocked-skill-00005": {Synced, false},
 	}
 	seen := make(map[string]bool, len(special))
 	states := make(map[State]bool)
@@ -170,13 +180,16 @@ func TestStatusFixtures(t *testing.T) {
 				t.Errorf("unexpected row %+v for a skill not in the vault", r)
 				continue
 			}
-			want = NotInstalled
+			want = expect{status: NotInstalled, compatible: true}
 			if !isValid {
-				want = Invalid
+				want.status = Invalid
 			}
 		}
-		if r.Status != want {
-			t.Errorf("%s = %s, want %s", key, r.Status, want)
+		if r.Status != want.status {
+			t.Errorf("%s = %s, want %s", key, r.Status, want.status)
+		}
+		if r.Compatible != want.compatible {
+			t.Errorf("%s compatible = %v, want %v", key, r.Compatible, want.compatible)
 		}
 		states[r.Status] = true
 	}
@@ -185,7 +198,7 @@ func TestStatusFixtures(t *testing.T) {
 			t.Errorf("no row for %s", key)
 		}
 	}
-	for _, s := range []State{NotInstalled, Invalid, Synced, Outdated, Modified, Orphaned, Unmanaged, Missing} {
+	for _, s := range []State{NotInstalled, Invalid, Incompatible, Synced, Outdated, Modified, Orphaned, Unmanaged, Missing} {
 		if !states[s] {
 			t.Errorf("no row with status %s", s)
 		}
@@ -252,6 +265,8 @@ func TestStatusMissingTargetDir(t *testing.T) {
 		t.Fatalf("Status() error = %v", err)
 	}
 	valid := fixtureValidity(t, v)
+	// Compatible lists in the fixture name claude (and cursor) only.
+	incompatible := map[string]bool{"mocked-skill-00004": true, "mocked-skill-00005": true}
 	if len(rows) != 12 {
 		t.Fatalf("got %d rows, want 12 vault skills", len(rows))
 	}
@@ -259,6 +274,9 @@ func TestStatusMissingTargetDir(t *testing.T) {
 		want := NotInstalled
 		if !valid[r.Skill] {
 			want = Invalid
+		}
+		if incompatible[r.Skill] {
+			want = Incompatible
 		}
 		if r.Status != want {
 			t.Errorf("%s = %s, want %s", r.Skill, r.Status, want)

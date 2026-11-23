@@ -152,6 +152,8 @@ func TestFixturesConsistent(t *testing.T) {
 		{agent: "claude", skill: "mocked-skill-00098", inVault: false, inTarget: false, inLock: true, status: "missing"},
 		{agent: "claude", skill: "hand-made-skill", inVault: false, inTarget: true, inLock: false, status: "unmanaged"},
 		{agent: "agents", skill: "mocked-skill-00001", inVault: true, inTarget: true, inLock: true, targetMatchesLock: true, lockMatchesVault: true, status: "synced"},
+		// Not compatible with agents (sapato.toml), installed anyway: synced, compatible: false.
+		{agent: "agents", skill: "mocked-skill-00005", inVault: true, inTarget: true, inLock: true, targetMatchesLock: true, lockMatchesVault: true, status: "synced"},
 	}
 
 	for _, tt := range tests {
