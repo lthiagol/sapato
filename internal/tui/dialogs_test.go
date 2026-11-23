@@ -281,8 +281,8 @@ func TestAddEscReturnsToTheMainScreen(t *testing.T) {
 func TestMainBarAndHelpListTheShortcuts(t *testing.T) {
 	m, _ := layoutModel(t, 120, 40)
 	bar := strings.Join(plainBar(m, m.View()), "\n")
-	if !strings.Contains(bar, "n add") {
-		t.Errorf("bar lacks %q:\n%s", "n add", bar)
+	if !strings.Contains(bar, "n add skill") {
+		t.Errorf("bar lacks %q:\n%s", "n add skill", bar)
 	}
 	for _, gone := range []string{"a adopt", "I import"} {
 		if strings.Contains(bar, gone) {
@@ -290,10 +290,10 @@ func TestMainBarAndHelpListTheShortcuts(t *testing.T) {
 		}
 	}
 	help := press(t, m, "?")
-	for _, key := range []struct{ key, desc string }{{"a", "adopt"}, {"I", "import"}, {"n", "add"}} {
+	for _, key := range []struct{ key, desc string }{{"a", "adopt"}, {"I", "import"}, {"n", "add skill"}} {
 		if !slices.ContainsFunc(strings.Split(help.View(), "\n"), func(l string) bool {
 			f := strings.Fields(l)
-			return len(f) == 2 && f[0] == key.key && f[1] == key.desc
+			return len(f) >= 2 && f[0] == key.key && strings.Join(f[1:], " ") == key.desc
 		}) {
 			t.Errorf("HELP lacks the %s %s line:\n%s", key.key, key.desc, help.View())
 		}

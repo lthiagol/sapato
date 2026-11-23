@@ -284,7 +284,7 @@ func TestBarAt80(t *testing.T) {
 	bar := plainBar(m, m.View())
 	want := []string{
 		"───────────────────────────────────── 4 skills · 0 invalid · 3 need attention ──",
-		centered("enter open · / filter · r refresh · n add", 80),
+		centered("enter open · / filter · r refresh · n add skill", 80),
 		centered("↑↓/jk move · t theme · L log · ? help · q quit", 80),
 	}
 	if strings.Join(bar, "\n") != strings.Join(want, "\n") {
@@ -421,7 +421,7 @@ func TestHintRowIsCenteredWithDimGlobals(t *testing.T) {
 	}
 	row := bar[1]
 	plain := sgr.ReplaceAllString(row, "")
-	want := centered("enter open · / filter · r refresh · n add │ ↑↓/jk move · t theme · L log · ? help · q quit", 200)
+	want := centered("enter open · / filter · r refresh · n add skill │ ↑↓/jk move · t theme · L log · ? help · q quit", 200)
 	if plain != want {
 		t.Errorf("hint row = %q, want %q", plain, want)
 	}
@@ -445,8 +445,8 @@ func TestHintRowsWrapThenDrop(t *testing.T) {
 		w     int
 		want  []string // the hint rows, without their pad and color codes
 	}{
-		{name: "grid at 120 keeps one row", w: 120, want: []string{"enter open · / filter · r refresh · n add │ ↑↓/jk move · t theme · L log · ? help · q quit"}},
-		{name: "grid at 80 wraps the globals", w: 80, want: []string{"enter open · / filter · r refresh · n add", "↑↓/jk move · t theme · L log · ? help · q quit"}},
+		{name: "grid at 120 keeps one row", w: 120, want: []string{"enter open · / filter · r refresh · n add skill │ ↑↓/jk move · t theme · L log · ? help · q quit"}},
+		{name: "grid at 80 wraps the globals", w: 80, want: []string{"enter open · / filter · r refresh · n add skill", "↑↓/jk move · t theme · L log · ? help · q quit"}},
 		{name: "grid at 40 drops t theme", w: 40, want: []string{"enter open · / filter · r refresh · n a…", "↑↓/jk move · L log · ? help · q quit"}},
 		{name: "grid at 30 drops t theme and L log", w: 30, want: []string{"enter open · / filter · r ref…", "↑↓/jk move · ? help · q quit"}},
 		{name: "skill screen at 120 wraps the globals", steps: []string{"enter"}, w: 120, want: []string{"space mark · i install · u uninstall · U update · d diff · a adopt · A install all · c compat · x export · D remove", "↑↓/jk move · pgup/pgdn page · esc back · t theme · L log · ? help · q quit"}},

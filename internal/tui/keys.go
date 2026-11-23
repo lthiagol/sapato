@@ -54,7 +54,7 @@ func newKeyMap() keyMap {
 		log:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "log")),
 
 		adopt:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "adopt")),
-		newSkill:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "add")),
+		newSkill:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "add skill")),
 		importTar: key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "import")),
 		theme:     key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "theme")),
 
