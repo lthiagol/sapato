@@ -30,6 +30,7 @@ All tasks 01–15 are approved and committed (one commit per task). The CLI (§7
 - **Title band and centered footer (task 27):** the non-main screens share one title band, and the footer hint rows are centered.
 - **ADD screen (task 28):** `n` opens ADD with Create, Import and Adopt rows and a live unmanaged count. The bar shows `n add`; `a` and `I` still work and are listed in HELP.
 - **Grid centering (task 29):** the grid's text (first SKILL character to the last agent icon) is centered, not its padded block.
+- **Titled blocks sized by content (task 30):** a titled screen's block is as wide as its widest line, between 60 and two thirds of the terminal, and centered. The IMPORT steps and the NEW steps each share one width.
 
 ## Open nits (optional, from the last review)
 

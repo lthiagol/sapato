@@ -42,7 +42,6 @@ func (m Model) openWizard() (Model, tea.Cmd) {
 		checked[i] = true
 	}
 	m.wiz = newWizard{name: newPathInput(), desc: newPathInput(), checked: checked}
-	m.sizeInputs()
 	cmd := m.focusWizard(0)
 	return m, cmd
 }

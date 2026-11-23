@@ -98,7 +98,6 @@ func (m Model) onDiscovered(msg discoveredMsg) (Model, tea.Cmd) {
 		return m, nil
 	case len(msg.cands) == 1 && !msg.cands[0].Valid && msg.cands[0].Fixable:
 		m.fixup = newFixForm(msg.src, msg.cands[0])
-		m.sizeInputs()
 		m.mode = modeImportFix
 		return m, m.fixup.name.Focus()
 	}

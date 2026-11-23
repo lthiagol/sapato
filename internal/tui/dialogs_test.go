@@ -822,9 +822,9 @@ func TestDialogsFitTheWidth(t *testing.T) {
 	}
 }
 
-// TestDialogBlocksAreCentered checks that each titled screen is one block of the same
-// width, centered: two thirds of the terminal, at least dialogMinW, never wider than
-// the terminal. Its content starts at the block's left edge.
+// TestDialogBlocksAreCentered checks each titled screen with the long values that
+// fill its block: the block stays within its bounds, centered, with its content at its
+// left edge.
 func TestDialogBlocksAreCentered(t *testing.T) {
 	longPath := strings.Repeat("a-very-long-path-segment/", 12)
 	defaultRows := []ops.Row{row("alpha", "claude", ops.Unmanaged), row("beta", "claude", ops.Synced)}
@@ -845,7 +845,7 @@ func TestDialogBlocksAreCentered(t *testing.T) {
 		{name: "HELP main", keys: []string{"?"}, want: modeHelp},
 		{name: "HELP skill", keys: []string{"enter", "?"}, want: modeHelp},
 	}
-	for _, size := range [][2]int{{120, 40}, {50, 24}} {
+	for _, size := range [][2]int{{141, 40}, {100, 30}, {60, 20}, {50, 24}} {
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%s at %dx%d", tt.name, size[0], size[1]), func(t *testing.T) {
 				rows := tt.rows
@@ -859,15 +859,86 @@ func TestDialogBlocksAreCentered(t *testing.T) {
 				if tt.setup != nil {
 					m = tt.setup(m)
 				}
-				want := min(size[0], max(dialogMinW, size[0]*2/3))
-				if got := m.blockWidth(); got != want {
-					t.Fatalf("block is %d wide, want %d", got, want)
-				}
-				if got, want := contentEdge(m, m.View()), (size[0]-want)/2; got != want {
-					t.Errorf("content starts at column %d, want %d:\n%s", got, want, m.View())
-				}
+				checkBlock(t, m, m.View())
 			})
 		}
+	}
+}
+
+// TestAdoptBlockDoesNotMoveWithTheFilter checks that the ADOPT block is measured over
+// every copy, so its edge stays put as the filter switches agents.
+func TestAdoptBlockDoesNotMoveWithTheFilter(t *testing.T) {
+	long := strings.Repeat("a-long-folder/", 8)
+	copies := []ops.UnmanagedCopy{
+		{Skill: "alpha", Agent: "claude", Path: "/agents/claude/alpha", Hash: "sha256:1"},
+		{Skill: "beta", Agent: "cursor", Path: "/agents/cursor/" + long + "beta", Hash: "sha256:2"},
+	}
+	b := &fakeBackend{rows: []ops.Row{row("alpha", "claude", ops.Unmanaged), row("beta", "cursor", ops.Unmanaged)}, copies: copies}
+	m := sized(t, press(t, loaded(t, b, dialogAgents), "a"), 141, 40)
+	edge := contentEdge(m, m.View())
+	for i, k := range []string{"tab", "tab", "tab"} {
+		m = press(t, m, k)
+		if got := contentEdge(m, m.View()); got != edge {
+			t.Errorf("after filter switch %d the block starts at column %d, want %d:\n%s", i+1, got, edge, m.View())
+		}
+	}
+}
+
+// TestConfirmKeepsTheScreenBehindItsBlock checks that the screen dimmed behind a confirm
+// keeps its own block: ADOPT under its force confirm, and NEW under its discard confirm.
+// The confirm box covers the lines it sits on, so the copy's row is read for ADOPT.
+func TestConfirmKeepsTheScreenBehindItsBlock(t *testing.T) {
+	name := strings.Repeat("a", 40)
+	copies := []ops.UnmanagedCopy{
+		{Skill: name, Agent: "claude", Path: "/agents/claude/" + strings.Repeat("sub/", 12), Hash: "sha256:1"},
+	}
+	b := &fakeBackend{rows: []ops.Row{row(name, "claude", ops.Unmanaged)}, copies: copies, inVault: map[string]bool{name: true}}
+	m := sized(t, press(t, loaded(t, b, dialogAgents), "a"), 141, 40)
+	block, rowEdge := m.block, leadingSpaces(sgr.ReplaceAllString(lineWith(t, m.View(), "/agents/claude"), ""))
+	m = press(t, m, "enter")
+	if m.mode != modeConfirm || !m.pending.act.force {
+		t.Fatalf("mode = %v, want a force confirm; result %q", m.mode, m.lastMsg())
+	}
+	if m.block != block {
+		t.Errorf("behind the force confirm the block is %d wide, want %d", m.block, block)
+	}
+	row := sgr.ReplaceAllString(lineWith(t, m.View(), "/agents/claude"), "")
+	if got := leadingSpaces(row); got != rowEdge {
+		t.Errorf("behind the force confirm the copy starts at column %d, want %d:\n%s", got, rowEdge, m.View())
+	}
+	if !strings.Contains(row, name+"  /agents") {
+		t.Errorf("the name is cut behind the force confirm: %q", row)
+	}
+
+	m = press(t, sized(t, loaded(t, &fakeBackend{rows: addRows}, dialogAgents), 141, 40), "n", "c")
+	m = typeText(t, m, "abc")
+	block = m.block
+	m = press(t, m, "esc")
+	if m.mode != modeConfirm {
+		t.Fatalf("mode = %v, want the discard confirm; result %q", m.mode, m.lastMsg())
+	}
+	if m.block != block {
+		t.Errorf("behind the discard confirm the block is %d wide, want %d", m.block, block)
+	}
+}
+
+// TestExportShowsItsDefaultPathInFull checks that the default path of EXPORT is whole
+// at 141 columns, and that the block does not move while the path is typed.
+func TestExportShowsItsDefaultPathInFull(t *testing.T) {
+	name := strings.Repeat("a-long-skill-name-", 3)
+	b := &fakeBackend{rows: []ops.Row{row(name, "claude", ops.Synced)}}
+	m := sized(t, press(t, loaded(t, b, dialogAgents), "enter", "x"), 141, 40)
+	if m.mode != modeExport {
+		t.Fatalf("mode = %v, want EXPORT; result %q", m.mode, m.lastMsg())
+	}
+	def := name + "-1.0.0.skill.tar.gz"
+	if got := sgr.ReplaceAllString(m.View(), ""); !strings.Contains(got, def) {
+		t.Errorf("the default path %q is cut:\n%s", def, got)
+	}
+	edge := contentEdge(m, m.View())
+	m = typeText(t, m, "x")
+	if got := contentEdge(m, m.View()); got != edge {
+		t.Errorf("typing moves the block to column %d, want %d:\n%s", got, edge, m.View())
 	}
 }
 

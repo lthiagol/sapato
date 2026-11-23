@@ -33,28 +33,9 @@ func (m Model) body() []string {
 		return m.confirmModal()
 	case modeDiff:
 		return m.diffBody()
-	case modeHelp:
-		return m.screenBody("Help", m.helpBody)
-	case modeAdd:
-		return m.screenBody("Add a skill to the vault", m.addBody)
-	case modeAdopt:
-		return m.screenBody("Adopt unmanaged skills into the vault", m.adoptBody)
-	case modeNew:
-		return m.screenBody("Create a new skill", m.newBody)
-	case modeImport:
-		return m.screenBody("Import skills", m.pathBody)
-	case modeExport:
-		return m.screenBody("Export "+m.open, m.pathBody)
-	case modeImportList:
-		return m.screenBody("Import skills · pick skills", m.importListBody)
-	case modeImportFix:
-		return m.screenBody("Import skills · fix "+m.fixName(), m.fixBody)
-	case modeImportBrowse:
-		return m.screenBody("Import skills · choose a file", m.browseBody)
-	case modeTheme:
-		return m.screenBody("Theme", m.themeBody)
-	case modeLog:
-		return m.screenBody("Log", m.logBody)
+	}
+	if title, build, ok := m.titledScreen(); ok {
+		return m.screenBody(title, build)
 	}
 	if m.screen == screenSkill {
 		return m.skillBody()

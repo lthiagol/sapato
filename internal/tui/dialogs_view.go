@@ -20,14 +20,43 @@ const (
 	confirmMinW = 40
 )
 
-// screenBody is a non-main screen (spec §9.4): the title band under the header rule,
-// then the content as one centered block of blockWidth. The band is the title centered
+// titledScreen is the title and the body of the titled screen or step m is on (spec
+// §9.4). ok is false for the other screens.
+func (m Model) titledScreen() (title string, build func(Model, int) []string, ok bool) {
+	switch m.mode {
+	case modeHelp:
+		return "Help", Model.helpBody, true
+	case modeAdd:
+		return "Add a skill to the vault", Model.addBody, true
+	case modeAdopt:
+		return "Adopt unmanaged skills into the vault", Model.adoptBody, true
+	case modeNew:
+		return "Create a new skill", Model.newBody, true
+	case modeImport:
+		return "Import skills", Model.pathBody, true
+	case modeExport:
+		return "Export " + m.open, Model.pathBody, true
+	case modeImportList:
+		return "Import skills · pick skills", Model.importListBody, true
+	case modeImportFix:
+		return "Import skills · fix " + m.fixName(), Model.fixBody, true
+	case modeImportBrowse:
+		return "Import skills · choose a file", Model.browseBody, true
+	case modeTheme:
+		return "Theme", Model.themeBody, true
+	case modeLog:
+		return "Log", Model.logBody, true
+	}
+	return "", nil, false
+}
+
+// screenBody is a titled screen (spec §9.4): the title band under the header rule,
+// then the content as one centered block of m.block. The band is the title centered
 // in bold and a full-width rule. build renders the lines for the block's width, so a
 // long value is cut to fit.
-func (m Model) screenBody(title string, build func(w int) []string) []string {
-	blockW := m.blockWidth()
+func (m Model) screenBody(title string, build func(Model, int) []string) []string {
 	band := []string{center(m.styles.bold.Render(truncate(title, m.layoutWidth())), m.width), m.rule()}
-	return append(band, m.centered(build(blockW), blockW)...)
+	return append(band, m.centered(build(m, m.block), m.block)...)
 }
 
 // confirmModal is a confirm over the screen it came from (spec §9.4): that screen,
@@ -111,10 +140,83 @@ func confirmTitle(a action) string {
 	return capitalize(a.op)
 }
 
-// blockWidth is the width of the content block of every titled screen and step: two
-// thirds of the terminal, at least dialogMinW, never wider than the terminal.
-func (m Model) blockWidth() int {
-	return min(m.layoutWidth(), max(dialogMinW, m.layoutWidth()*2/3))
+// measureBlock is the content block of the titled screen m is on: the widest line of
+// its steps, between its floor and the most. The most is two thirds of the terminal, at
+// least dialogMinW, and never wider than the terminal. An input screen (NEW, IMPORT,
+// EXPORT) has the floor dialogMinW, or the terminal when narrower, and EXPORT's floor
+// is its default path in full when that is wider. Other screens have no floor, so short
+// content sits centered. A confirm measures the screen it sits over. A screen with
+// several steps measures them at the floor: their paths, problems and check lines are
+// cut to it, so the block never depends on which step is open, what it has read, or
+// what was typed. Inputs measure at the floor as well.
+func (m Model) measureBlock() int {
+	s := m
+	if m.mode == modeConfirm {
+		s.mode = m.pending.act.back
+	}
+	w := m.layoutWidth()
+	most := min(w, max(dialogMinW, w*2/3))
+	floor := 1
+	if s.hasInput() {
+		floor = min(dialogMinW, w)
+		if s.mode == modeExport {
+			floor = max(floor, min(most, s.exportW))
+		}
+	}
+	steps := s.sharedSteps()
+	measure := most
+	if len(steps) > 1 {
+		measure = floor
+	}
+	widest := 0
+	for _, step := range steps {
+		if _, build, ok := step.titledScreen(); ok {
+			if step.mode == modeAdopt {
+				step = step.allCopies()
+			}
+			widest = max(widest, maxWidth(build(step, measure)))
+		}
+	}
+	return max(1, min(most, max(floor, widest)))
+}
+
+// hasInput reports whether m is on a screen with an input, whose block keeps a floor
+// (spec §9.4).
+func (m Model) hasInput() bool {
+	switch m.mode {
+	case modeNew, modeImport, modeImportBrowse, modeImportList, modeImportFix, modeExport:
+		return true
+	}
+	return false
+}
+
+// allCopies is m with the ADOPT picker showing every copy under every filter, in one
+// window: no size means pickRows counts every line. Its block is measured this way so
+// it does not move as the filter switches agents.
+func (m Model) allCopies() Model {
+	m.pickFilter, m.pickTop, m.height = 0, 0, 0
+	return m
+}
+
+// sharedSteps are the steps of the screen m is on that share its block: the four steps
+// of IMPORT, and the wizard and the paste mode of NEW. Each is m as that step would be
+// open, so the block does not depend on which step is open.
+func (m Model) sharedSteps() []Model {
+	switch m.mode {
+	case modeNew:
+		paste := m
+		paste.newPaste = !m.newPaste
+		return []Model{m, paste}
+	case modeImport, modeImportBrowse, modeImportList, modeImportFix:
+		steps := make([]Model, 0, 4)
+		for _, md := range []mode{modeImport, modeImportBrowse, modeImportList, modeImportFix} {
+			step := m
+			step.mode = md
+			steps = append(steps, step)
+		}
+		return steps
+	}
+	return []Model{m}
 }
 
 // centered lays the lines in a block blockW wide, centered in the terminal. Each

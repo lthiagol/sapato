@@ -170,6 +170,8 @@ type Model struct {
 	tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
 
 	width, height int
+	block         int // the content block of the titled screen m is on (spec §9.4), set by sizeInputs
+	exportW       int // the block EXPORT needs to show its default path in full, set when it opens
 }
 
 // New returns the UI for the agents as grid columns, painted with th and drawn
@@ -274,6 +276,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	before := m.pushed
 	next, cmd := m.handle(msg)
+	next.sizeInputs()
 	return next, tea.Batch(cmd, next.expiries(before))
 }
 
@@ -284,7 +287,6 @@ func (m Model) handle(msg tea.Msg) (Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.diff.Width = msg.Width
 		m.diff.Height = max(1, m.bodyHeight()-1)
-		m.sizeInputs()
 		m.scroll()
 		m.scrollAgents()
 	case exportNameMsg:

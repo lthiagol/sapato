@@ -58,17 +58,30 @@ func newPathInput() textinput.Model {
 	return p
 }
 
-// sizeInputs fits the editor and the path inputs to their block. The editor is sized
-// for the paste mode of NEW, whatever is open when this runs, since its bar sets the
-// rows left for it: the title band and the check line take four rows. The path inputs
-// draw their cursor one column past their width, so that column is left out.
+// sizeInputs sets the block of the screen m is on and fits the editor and the path
+// inputs to it. It runs after every message, so the block follows the state. The
+// steps are measured with the inputs at the least block first, since the editor's
+// viewport is shared by copies of the model. The editor is sized for the paste mode
+// of NEW, whatever is open when this runs, since its bar sets the rows left for it:
+// the title band and the check line take four rows.
 func (m *Model) sizeInputs() {
-	m.area.SetWidth(m.blockWidth())
+	m.fitInputs(min(dialogMinW, m.layoutWidth()))
+	m.block = m.measureBlock()
+	m.fitInputs(m.block)
 	paste := *m
 	paste.mode, paste.newPaste = modeNew, true
 	m.area.SetHeight(max(1, paste.bodyHeight()-4))
+}
+
+// fitInputs sets the editor and the inputs to w columns. The path inputs draw their
+// cursor one column past their width, so that column is left out.
+func (m *Model) fitInputs(w int) {
+	m.area.SetWidth(w)
 	for _, in := range []*textinput.Model{&m.path, &m.fixup.name, &m.fixup.desc, &m.wiz.name, &m.wiz.desc} {
-		in.Width = max(1, m.blockWidth()-lipgloss.Width(in.Prompt)-1)
+		in.Width = max(1, w-lipgloss.Width(in.Prompt)-1)
+		// The scroll offset is only worked out when the cursor moves, so move it to
+		// where it is to show the text at the new width.
+		in.SetCursor(in.Position())
 	}
 }
 
@@ -391,6 +404,7 @@ func (m Model) onExportName(msg exportNameMsg) (Model, tea.Cmd) {
 	m.mode = modeExport
 	m.path.SetValue(msg.name)
 	m.path.CursorEnd()
+	m.exportW = lipgloss.Width(m.path.Prompt) + lipgloss.Width(msg.name) + 1
 	return m, m.path.Focus()
 }
 

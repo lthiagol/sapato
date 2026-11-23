@@ -675,12 +675,12 @@ var bandScreens = []struct {
 	}},
 }
 
-// TestTitleBandOnEveryNonMainScreen checks each non-main screen at 60x20 and 120x40: the
-// rule under the header, then the title row centered with the right title, then a
-// full-width rule. The content is one block centered in the terminal, and nothing is
-// wider than the terminal.
+// TestTitleBandOnEveryNonMainScreen checks each non-main screen at 60x20, 100x30, 120x40
+// and 141x40: the rule under the header, then the title row centered with the right
+// title, then a full-width rule. The content is one block centered in the terminal, and
+// nothing is wider than the terminal.
 func TestTitleBandOnEveryNonMainScreen(t *testing.T) {
-	for _, size := range [][2]int{{60, 20}, {120, 40}} {
+	for _, size := range [][2]int{{60, 20}, {100, 30}, {120, 40}, {141, 40}} {
 		for _, sc := range bandScreens {
 			t.Run(fmt.Sprintf("%s at %dx%d", sc.name, size[0], size[1]), func(t *testing.T) {
 				m, b := layoutModel(t, size[0], size[1])
@@ -710,11 +710,9 @@ func TestTitleBandOnEveryNonMainScreen(t *testing.T) {
 					t.Errorf("row under the title is %q, want the full-width rule", got)
 				}
 
-				// Every titled screen and step is one block of blockWidth, centered, with
-				// its content left-aligned: the block's edge is the least indent of its lines.
-				if got, want := contentEdge(m, view), (w-m.blockWidth())/2; got != want {
-					t.Errorf("content block starts at column %d, want %d (a centered block %d wide):\n%s", got, want, m.blockWidth(), view)
-				}
+				// Every titled screen and step is one block, centered, with its content
+				// left-aligned.
+				checkBlock(t, m, view)
 				for i, l := range lines {
 					if got := lipgloss.Width(l); got > w {
 						t.Errorf("line %d is %d columns, want at most %d: %q", i, got, w, l)
@@ -722,6 +720,82 @@ func TestTitleBandOnEveryNonMainScreen(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestShortScreensAreCenteredAtWideTerminals checks that ADD, the NEW wizard and ADOPT,
+// whose content is narrower than their block, sit centered at 141 columns: the content
+// starts past column 30.
+func TestShortScreensAreCenteredAtWideTerminals(t *testing.T) {
+	short := []string{"add", "new wizard", "adopt"}
+	for _, sc := range bandScreens {
+		if !slices.Contains(short, sc.name) {
+			continue
+		}
+		t.Run(sc.name, func(t *testing.T) {
+			m, b := layoutModel(t, 141, 40)
+			m = sc.setup(t, m, b)
+			if got := contentEdge(m, m.View()); got <= 30 {
+				t.Errorf("content starts at column %d, want past 30 at 141 columns:\n%s", got, m.View())
+			}
+		})
+	}
+}
+
+// TestStepsOfOneScreenShareTheirLeftEdge checks that the steps of IMPORT, and the wizard
+// and the paste mode of NEW, draw at one left edge at each size, so the content does not
+// move between them.
+func TestStepsOfOneScreenShareTheirLeftEdge(t *testing.T) {
+	groups := [][]string{
+		{"import source", "import picker", "import list", "import fix-up"},
+		{"new wizard", "new paste"},
+	}
+	for _, size := range [][2]int{{141, 40}, {100, 30}, {60, 20}} {
+		for _, group := range groups {
+			t.Run(fmt.Sprintf("%s at %dx%d", group[0], size[0], size[1]), func(t *testing.T) {
+				first := -1
+				for _, sc := range bandScreens {
+					if !slices.Contains(group, sc.name) {
+						continue
+					}
+					m, b := layoutModel(t, size[0], size[1])
+					m = sc.setup(t, m, b)
+					edge := contentEdge(m, m.View())
+					if first < 0 {
+						first = edge
+					}
+					if edge != first {
+						t.Errorf("%s starts at column %d, want %d like its siblings:\n%s", sc.name, edge, first, m.View())
+					}
+				}
+			})
+		}
+	}
+}
+
+// TestAddRowsShareOneLeftEdge checks that the rows of ADD name in one column whichever row
+// holds the cursor.
+func TestAddRowsShareOneLeftEdge(t *testing.T) {
+	for _, size := range [][2]int{{141, 40}, {60, 20}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			m, _ := layoutModel(t, size[0], size[1])
+			m = press(t, m, "n")
+			for cur := range 3 {
+				m.addCur = cur
+				view := m.View()
+				col := -1
+				for _, name := range []string{"Create", "Import", "Adopt"} {
+					line := sgr.ReplaceAllString(lineWith(t, view, name), "")
+					at := lipgloss.Width(line[:strings.Index(line, name)])
+					if col < 0 {
+						col = at
+					}
+					if at != col {
+						t.Errorf("cursor on row %d: %s is at column %d, want %d:\n%s", cur, name, at, col, view)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -849,6 +923,46 @@ func contentEdge(m Model, view string) int {
 		edge = min(edge, leadingSpaces(plain))
 	}
 	return edge
+}
+
+// contentExtent is the widest content line of view, counted from the block's left edge
+// to its last visible column. Trailing spaces do not count.
+func contentExtent(m Model, view string) int {
+	lines := strings.Split(view, "\n")
+	edge := contentEdge(m, view)
+	ext := 0
+	for _, line := range lines[m.headerHeight()+3 : len(lines)-len(m.bar())] {
+		plain := strings.TrimRight(sgr.ReplaceAllString(line, ""), " ")
+		ext = max(ext, lipgloss.Width(plain)-edge)
+	}
+	return ext
+}
+
+// checkBlock checks the block of the titled screen m is on, drawn as view. The block is
+// between its least and the most (two thirds of the terminal, at least dialogMinW). An
+// input screen (NEW, IMPORT, EXPORT) has the least of dialogMinW, or the terminal when
+// narrower; other screens have none. The block is centered and its content starts at
+// its left edge. A screen without an input is exactly as wide as its content.
+func checkBlock(t *testing.T, m Model, view string) {
+	t.Helper()
+	w := m.width
+	least, most := 1, min(w, max(dialogMinW, w*2/3))
+	input := false
+	switch m.mode {
+	case modeNew, modeImport, modeImportBrowse, modeImportList, modeImportFix, modeExport:
+		input = true
+		least = min(dialogMinW, w)
+	}
+	if m.block < least || m.block > most {
+		t.Errorf("block is %d wide, want %d to %d", m.block, least, most)
+	}
+	if got, want := contentEdge(m, view), (w-m.block)/2; got != want {
+		t.Errorf("content starts at column %d, want %d (a centered block %d wide):\n%s", got, want, m.block, view)
+	}
+	ext := contentExtent(m, view)
+	if input && ext > m.block || !input && ext != m.block {
+		t.Errorf("block is %d wide for content %d wide:\n%s", m.block, ext, view)
+	}
 }
 
 func TestSkillInfoShowsTheVaultSkill(t *testing.T) {
