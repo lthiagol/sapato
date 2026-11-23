@@ -245,19 +245,23 @@ func (m Model) detailLines(w int) []string {
 		glyph, word, style := " ", "absent", dim
 		state, has := m.cells[cell{m.open, a.ID}]
 		if has {
-			glyph, word, style = m.icons.Status[state], string(state), m.styles.glyph[state]
+			glyph, word, style = m.icons.Status[state], shortWord(state), m.styles.glyph[state]
 		}
 		segs := []seg{{a.ID + "  ", m.styles.bold}, {glyph + " " + word, style}}
 		if d, ok := m.shownDetail(); ok && d.managed {
 			segs = append(segs, seg{" · installed " + d.entry.InstalledAt.Local().Format(dateFormat), dim})
 		}
+		// An incompatible agent already says so in its status word.
+		if m.incompat[cell{m.open, a.ID}] && state != ops.Incompatible {
+			segs = append(segs, seg{" · " + m.icons.Status[ops.Incompatible] + " not compatible", m.styles.warn})
+		}
 		add(segs...)
-		if hasFolder(state) {
-			add(seg{"  ", plain}, seg{filepath.Join(a.Path, m.open), dim})
+		// The section is always two lines, so FILES stays on one row for every agent.
+		where := filepath.Join(a.Path, m.open)
+		if !hasFolder(state) {
+			where += " (not installed)"
 		}
-		if m.installedIncompatible(cell{m.open, a.ID}) {
-			add(seg{"  not compatible with " + a.ID, m.styles.warn})
-		}
+		add(seg{"  " + where, dim})
 	}
 
 	lines = append(lines, "")

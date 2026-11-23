@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -221,6 +222,83 @@ func TestAgentSectionShowsNoDateWhenNotInstalled(t *testing.T) {
 	m = onSkill(t, sized(t, m, 120, 40), "mocked-skill-00004", "claude")
 	if view := m.View(); strings.Contains(view, "installed 20") {
 		t.Errorf("agent section of a skill not installed shows a date:\n%s", view)
+	}
+}
+
+// agentSection returns the two lines of the section of agent in the details pane of m,
+// and the row of the FILES title. The row is -1 when the pane lacks either.
+func agentSection(m Model, agent string) ([]string, int) {
+	lines := stripLines(m.detailLines(m.skillLayout().detail.w - 4))
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, agent+"  ") })
+	files := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "FILES") })
+	if i < 0 || i+2 > len(lines) || files < 0 {
+		return nil, -1
+	}
+	return lines[i : i+2], files
+}
+
+func TestAgentSectionIsTwoLinesSoFilesStaysOnOneRow(t *testing.T) {
+	_, set := testLook(t)
+	codex := config.Agent{ID: "codex", Path: "/agents/codex"}
+	zed := config.Agent{ID: "zed", Path: "/agents/zed"}
+	b := &fakeBackend{
+		rows: []ops.Row{
+			row("alpha", "claude", ops.Synced),
+			row("alpha", "cursor", ops.NotInstalled),
+			incompatRow("alpha", "codex", ops.Synced),
+			incompatRow("alpha", "zed", ops.Incompatible),
+		},
+		files: map[string][]ops.File{"/vault/skills/alpha": {{Path: "SKILL.md", Size: 70}}},
+	}
+	agents := []config.Agent{claude, cursorAgent, codex, zed}
+	m := onSkill(t, sized(t, loaded(t, b, agents), 120, 40), "alpha", "claude")
+	tests := []struct {
+		agent string
+		line1 string
+		line2 string
+	}{
+		{"claude", set.Status[ops.Synced] + " synced", "  /agents/claude/alpha"},
+		{"cursor", set.Status[ops.NotInstalled] + " not inst.", "  /agents/cursor/alpha (not installed)"},
+		{"codex", set.Status[ops.Synced] + " synced · " + set.Status[ops.Incompatible] + " not compatible", "  /agents/codex/alpha"},
+		{"zed", set.Status[ops.Incompatible] + " incompatible", "  /agents/zed/alpha (not installed)"},
+	}
+	files := -1
+	for i, tt := range tests {
+		if i > 0 {
+			m = press(t, m, "down")
+		}
+		section, filesRow := agentSection(m, tt.agent)
+		if section == nil {
+			t.Fatalf("details lack the section of %s:\n%s", tt.agent, m.View())
+		}
+		if want := tt.agent + "  " + tt.line1; section[0] != want {
+			t.Errorf("%s line 1 = %q, want %q", tt.agent, section[0], want)
+		}
+		if section[1] != tt.line2 {
+			t.Errorf("%s line 2 = %q, want %q", tt.agent, section[1], tt.line2)
+		}
+		if files < 0 {
+			files = filesRow
+		}
+		if filesRow != files {
+			t.Errorf("FILES is on row %d for %s, want row %d as for the first agent", filesRow, tt.agent, files)
+		}
+	}
+}
+
+func TestNotInstalledPathLineIsDimmed(t *testing.T) {
+	b := &fakeBackend{
+		rows:  []ops.Row{row("alpha", "claude", ops.Synced), row("alpha", "cursor", ops.NotInstalled)},
+		files: map[string][]ops.File{"/vault/skills/alpha": {{Path: "SKILL.md", Size: 70}}},
+	}
+	m := colored(t, onSkill(t, sized(t, loaded(t, b, []config.Agent{claude, cursorAgent}), 120, 40), "alpha", "cursor"))
+	want := m.styles.dim.Render("  /agents/cursor/alpha (not installed)")
+	lines := m.detailLines(m.skillLayout().detail.w - 4)
+	if !slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, want) }) {
+		t.Errorf("details lack the would-be path dimmed as %q:\n%s", want, strings.Join(stripLines(lines), "\n"))
 	}
 }
 

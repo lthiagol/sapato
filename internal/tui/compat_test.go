@@ -96,8 +96,11 @@ func TestDetailsShowTheCompatListAndTheIncompatibleCopy(t *testing.T) {
 			if !containsLine(lines, tt.want) {
 				t.Errorf("details lack %q:\n%s", tt.want, strings.Join(lines, "\n"))
 			}
-			if !containsLine(lines, "not compatible with cursor") {
-				t.Errorf("details lack the incompatible line:\n%s", strings.Join(lines, "\n"))
+			if !containsLine(lines, "cursor  "+set.Status[ops.Synced]+" synced · "+set.Status[ops.Incompatible]+" not compatible") {
+				t.Errorf("details lack the incompatible suffix on the agent line:\n%s", strings.Join(lines, "\n"))
+			}
+			if containsLine(lines, "not compatible with") {
+				t.Errorf("details still have the separate incompatible line:\n%s", strings.Join(lines, "\n"))
 			}
 			if m.styles.warn.GetForeground() != th.Yellow {
 				t.Errorf("warn style is %v, want the Yellow role %v", m.styles.warn.GetForeground(), th.Yellow)
